@@ -8,6 +8,7 @@ A journey into discovering how to handle state through databases in a production
 - [Regarding lifecycle management](#regarding-lifecycle-management)
 - [Regarding scalability](#regarding-scalability)
 - [Regarding observability](#regarding-observability)
+- [Regarding developers](#regarding-developers)
 
 
 # Regarding Architecture
