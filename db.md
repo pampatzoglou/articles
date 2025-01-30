@@ -3,9 +3,9 @@
 A journey into discovering how to handle state through databases in a production environment with examples that I found useful. We will consider several aspects:
 # Table of Contents
 - [Regarding architecture](#regarding-architecture)
+- [Regarding lifecycle management](#regarding-lifecycle-management)
 - [Regarding security](#regarding-security)
 - [Regarding Disaster recovery](#regarding-disaster-recovery)
-- [Regarding lifecycle management](#regarding-lifecycle-management)
 - [Regarding scalability](#regarding-scalability)
 - [Regarding observability](#regarding-observability)
 - [Regarding developers](#regarding-developers)
@@ -168,16 +168,9 @@ In a kubernetes context you should be using different and unique security contex
 
 
 ```
+# Regarding lifecycle management
 
-# Regarding security
-
-### How to make all these possible
-
-These are the tools I leveraged:
-
-#### helm / argo hooks
-
-Use two different jobs to handle the distinct aspects of the application lifecycle. The first Job runs first only on installation and its single responsibility is to create the database with the required parameters. In fact it will run even before installation as we use the `pre-install` hook, which means before any application-specific resources are created.
+Use two different jobs to handle the distinct aspects of the application lifecycle. The first Job runs first only on installation and its single responsibility is to create the database with the required parameters. In fact, it will run even before installation as we use the `pre-install` hook, which means before any application-specific resources are created.
 
 ```yaml
 apiVersion: batch/v1
@@ -221,6 +214,12 @@ spec:
       containers:
         - name: db-migrate
 ```
+
+# Regarding security
+
+### How to make all these possible
+
+These are the tools I leveraged:
 
 **note**: The db create entity requires superuser privileges to actually create the database. Thus it's better to not even trust the cluster to save a secret that contains this level of credentials. A better approach is to have a binary that can directly access the vault and directly get the required credentials. The `db migrate` job should apply the same principle but there will be problems with local development. As a compromise, two different secrets with different RBAC should be used to facilitate production security and development ease. Something like:
 
@@ -386,8 +385,6 @@ The main problem is that by nature of vault etc, not all of these can be automat
 ```
 
 # Regarding Disaster recovery
-
-# Regarding lifecycle management
 
 # Regarding scalability
 
