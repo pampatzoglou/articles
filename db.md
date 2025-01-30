@@ -399,4 +399,187 @@ This entire setup considers a single database that can be used for read and writ
    2. Use a service like pgPool that will act like a reverse proxy to the database and depending on its selection or update the query, route the query to the correct instance type. Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc.
 
 # Regarding observability
+Sample Prometheus rule regarding a generic app database that can be used as a reference.
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-postgresql
+  labels:
+    release: prometheus
+    app.kubernetes.io/component: metrics
+spec:
+  groups:
+    - name: app-postgresql
+      rules:
+        - alert: PostgresqlDown
+          annotations:
+            description: Postgresql instance is down VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql down (instance {{ $labels.instance }})
+          expr: pg_up{namespace="backend", pod=~"app-postgresql-.*"} == 0
+          for: 0m
+          labels:
+            severity: critical
+        - alert: PrimaryPostgresqlRestarted
+          annotations:
+            description: Postgresql restarted VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql restarted (instance {{ $labels.instance }})
+          expr: time() - process_start_time_seconds{namespace="backend", pod="app-postgresql-primary-0"} < 60
+          for: 2m
+          labels:
+            severity: critical
+        - alert: PostgresqlRestarted
+          annotations:
+            description: Postgresql restarted VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql restarted (instance {{ $labels.instance }})
+          expr: time() - process_start_time_seconds{namespace="backend", pod=~"app-postgresql-.*"} < 60
+          for: 0m
+          labels:
+            severity: warning
+        - alert: PostgresqlRunningOutConnections
+          annotations:
+            description: Available VALUE  VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Number of available connections less than 10% (instance {{ $labels.instance }})
+          expr: (((sum(pg_settings_max_connections{namespace="backend", pod=~"app-postgresql-.*"}) by (server) - sum(pg_settings_superuser_reserved_connections{namespace="backend", pod=~"app-postgresql-.*"}) by (server)) - sum(pg_stat_activity_count{namespace="backend", pod=~"app-postgresql-.*"}) by (server)) / sum(pg_settings_max_connections{namespace="backend", pod=~"app-postgresql-.*"}) by (server)) * 100 < 10
+          for: 2m
+          labels:
+            component: database
+            severity: warning
+        - alert: PostgresqlExporterError
+          annotations:
+            description: Postgresql exporter is showing errors. A query may be buggy in query.yaml VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql exporter error (instance {{ $labels.instance }})
+          expr: pg_exporter_last_scrape_error{namespace="backend", pod=~"app-postgresql-.*"} > 0
+          for: 0m
+          labels:
+            severity: critical
+        - alert: PostgresqlTableNotAutoVacuumed
+          annotations:
+            description: Table {{ $labels.relname }} has not been auto vacuumed for 10 days VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql table not auto vacuumed (instance {{ $labels.instance }})
+          expr: (pg_stat_user_tables_last_autovacuum{namespace="backend", pod=~"app-postgresql-.*"} > 0) and (time() - pg_stat_user_tables_last_autovacuum{namespace="backend", pod=~"app-postgresql-.*"}) > 60 * 60 * 24 * 10
+          for: 0m
+          labels:
+            severity: warning
+        - alert: PostgresqlTableNotAutoAnalyzed
+          annotations:
+            description: Table {{ $labels.relname }} has not been auto analyzed for 10 days VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql table not auto analyzed (instance {{ $labels.instance }})
+          expr: (pg_stat_user_tables_last_autoanalyze{namespace="backend", pod=~"app-postgresql-.*"} > 0) and (time() - pg_stat_user_tables_last_autoanalyze{namespace="backend", pod=~"app-postgresql-.*"}) > 24 * 60 * 60 * 10
+          for: 0m
+          labels:
+            severity: warning
+        - alert: PostgresqlTooManyConnections
+          annotations:
+            description: PostgreSQL instance has too many connections (> 80%). VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql too many connections (instance {{ $labels.instance }})
+          expr: sum by (instance, job, server) (pg_stat_activity_count{namespace="backend",pod=~"app-postgresql-.*"}) > min by (instance, job, server) (pg_settings_max_connections{namespace="backend",pod=~"app-postgresql-.*"} * 0.8)
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlNotEnoughConnections
+          annotations:
+            description: PostgreSQL instance should have more connections (> 5) VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql not enough connections (instance {{ $labels.instance }})
+          expr: sum by (datname) (pg_stat_activity_count{namespace="backend",pod=~"app-postgresql-.*", datname!~"template.*|postgres|readme_to_recover"}) < 5
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlDeadLocks
+          annotations:
+            description: PostgreSQL has dead-locks VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql dead locks (instance {{ $labels.instance }})
+          expr: increase(pg_stat_database_deadlocks{namespace="backend",pod=~"app-postgresql-.*", datname!~"template.*|postgres|readme_to_recover"}[1m]) > 5
+          for: 0m
+          labels:
+            severity: warning
+        - alert: PostgresqlHighRollbackRate
+          annotations:
+            description: Ratio of transactions being aborted compared to committed is > 2  VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql high rollback rate (instance {{ $labels.instance }})
+          expr: sum by (namespace,datname) ((rate(pg_stat_database_xact_rollback{namespace="backend",pod=~"app-postgresql-.*",datname!~"template.*|postgres|readme_to_recover",datid!="0"}[3m]))) / (((rate(pg_stat_database_xact_rollback{namespace="backend",pod=~"app-postgresql-.*",datname!~"template.*|postgres",datid!="0"}[3m])) + (rate(pg_stat_database_xact_commit{datname!~"template.*|postgres",datid!="0"}[3m])))) > 0.02
+          for: 0m
+          labels:
+            severity: warning
+        - alert: PostgresqlCommitRateLow
+          annotations:
+            description: Postgresql seems to be processing very few transactions VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql commit rate low (instance {{ $labels.instance }})
+          expr: rate(pg_stat_database_xact_commit{namespace="backend",pod=~"app-postgresql-.*",datname!~"template.*|postgres|readme_to_recover"}[1m]) < 1
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlReplicationLag
+          annotations:
+            description: VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql replica is lagging (instance {{ $labels.instance }})
+          expr: pg_replication_lag_seconds{namespace="backend",pod=~"app-postgresql-.*"} > 2
+          for: 1m
+          labels:
+            severity: warning
+        - alert: PostgresqlTooManyDeadTuples
+          annotations:
+            description: PostgreSQL dead tuples is too large VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql too many dead tuples (instance {{ $labels.instance }})
+          expr: ((pg_stat_user_tables_n_dead_tup{namespace="backend",pod=~"app-postgresql-.*"} > 5)) / (pg_stat_user_tables_n_live_tup{namespace="backend",pod=~"app-postgresql-.*"} + pg_stat_user_tables_n_dead_tup{namespace="backend",pod=~"app-postgresql-.*"}) >= 0.1
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlTooManyLocksAcquired
+          annotations:
+            description: Too many locks were acquired on the database. If this alert happens frequently, we may need to increase the postgres setting max_locks_per_transaction. VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql too many locks acquired (instance {{ $labels.instance }})
+          expr: ((sum (pg_locks_count{namespace="backend",pod=~"app-postgresql-.*"})) / (pg_settings_max_locks_per_transaction{namespace="backend",pod=~"app-postgresql-.*"} * pg_settings_max_connections{namespace="backend",pod=~"app-postgresql-.*"})) > 0.20
+          for: 2m
+          labels:
+            severity: critical
+        - alert: PostgresqlLatency
+          annotations:
+            description: Postgres is running slow. VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql is lagging over 1 second (instance {{ $labels.instance }})
+          expr: pg_stat_activity_max_tx_duration{namespace="backend",pod=~"app-postgresql-.*",state="active"} > 1
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlCacheHitRate
+          annotations:
+            description: Postgres cache hit rate is very low. VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql is lagging over 1 second (instance {{ $labels.instance }})
+          expr: 100 * (rate(pg_stat_database_blks_hit{namespace="backend",pod=~"app-postgresql-.*"}[2m]) / ((rate(pg_stat_database_blks_hit{namespace="backend",pod=~"app-postgresql-.*"}[2m]) + rate(pg_stat_database_blks_read{namespace="backend",pod=~"app-postgresql-.*"}[2m]))>0)) < 80
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlMemoryAvailable
+          annotations:
+            description: Postgres is using over 0.8 of available memory. VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql running out of available memory (instance {{ $labels.instance }})
+          expr: sum by(pod,container)(container_memory_usage_bytes{namespace="backend",pod=~"app-postgresql-.*", container!="POD",container!=""}) / sum by(pod,container)(kube_pod_container_resource_limits{namespace="backend",pod=~"app-postgresql-.*",resource="memory"}) > 0.8
+          for: 2m
+          labels:
+            severity: warning
+        - alert: PostgresqlRequestedBufferCheckpoints
+          annotations:
+            description: PostgreSQL uses the buffer checkpoints to write the dirty buffers on disk, so it creates safe points for the Write Ahead Log (WAL). These checkpoints are scheduled periodically but also can be requested on-demand when the buffer runs out of space. A high number of requested checkpoints compared to the number of scheduled checkpoints can impact directly the performance of your PostgreSQL instance. To avoid this situation you could increase the database buffer size. VALUE = {{ $value }} LABELS = {{ $labels }}
+            summary: Postgresql is over using write buffer (instance {{ $labels.instance }})
+          expr: rate(pg_stat_bgwriter_checkpoints_req_total{namespace="backend",pod=~"app-postgresql-.*"}[5m]) / (rate(pg_stat_bgwriter_checkpoints_req_total{namespace="backend",pod=~"app-postgresql-.*"}[5m]) + rate(pg_stat_bgwriter_checkpoints_timed_total{namespace="backend",pod=~"app-postgresql-.*"}[5m])) * 100 > 0.8
+          for: 2m
+          labels:
+            severity: warning
+```
+
+If you need some business-related logic to be exposed and alert on, then you can use the metrics exporter and create a custom metric, eg:
+```yaml
+pg_database:
+  metrics:
+  - name:
+      description: Name of the database
+      usage: LABEL
+  - size_bytes:
+      description: Size of the database in bytes
+      usage: GAUGE
+  query: SELECT pg_database.datname, pg_database_size(pg_database.datname) as bytes
+    FROM pg_database;
+```
+and then create an alert based on the particular metric.
+
 
