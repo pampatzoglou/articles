@@ -10,6 +10,8 @@ A journey into discovering how to handle state through databases in a production
 - [Regarding observability](#regarding-observability)
 
 
+# Regarding Architecture
+
 ### **1. Shared Database, Shared Schema**
 
 * All tenants use the same database and the same set of tables.
