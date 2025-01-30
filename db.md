@@ -59,7 +59,7 @@ A journey into discovering how to handle state through databases in a production
    Nevertheless, even with RLS the two issues remain:
    1. There is always a `WHERE tenant_id` clause that turns binary searches into bitmap searches.
    2. It's considered easy to jailbreak.
-   3. You will still need to create a migrations-like process that will generate and apply the RLS in some form or another.
+   3. You will still need to create a migrations-like process that will generate and update the RLS as you add new tenants.
    I would suggest experimenting with using `EXPLAIN` and `EXPLAIN ANALYZE` on your data to see how it works on your system.
    
 
