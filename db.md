@@ -196,18 +196,29 @@ sequenceDiagram
     participant ArgoCD as ArgoCD Controller
     participant K8s as Kubernetes
     participant DB as Database
+    participant App as Application
 
     Helm->>ArgoCD: Apply Helm Chart (PreSync Hooks)
     ArgoCD->>K8s: Create Pre-Install Job (db-create)
-    K8s->>DB: Execute Database Creation Job
+    K8s->>DB: Execute Database Creation Job (Admin Credentials)
     DB-->>K8s: Database Created
     K8s-->>ArgoCD: Job db-create Completed
+
     ArgoCD->>K8s: Create Pre-Install Job (db-migrate)
-    K8s->>DB: Execute Migration Job
+    K8s->>DB: Execute Migration Job (Migration Credentials)
     DB-->>K8s: Migration Completed
     K8s-->>ArgoCD: Job db-migrate Completed
+
     ArgoCD->>Helm: Proceed with Deployment
     Helm->>K8s: Deploy Application
+
+    K8s->>DB: Create Runtime User (Read/Write Credentials)
+    K8s->>App: Deploy Application with Runtime Credentials
+    App->>DB: Connect to Database (Runtime Credentials)
+    DB-->>App: Access Granted
+
+    App->>DB: Perform Read/Write Operations
+    DB-->>App: Data Retrieved/Updated
 ```
 
 # Regarding security
@@ -510,6 +521,48 @@ annotations:
 You can define these as complex as required using the RTO and RPO as definite guides. What you really need to pay special attention to is WHERE these are saved and WHY its safe. To be honest here the only real solution for this is to use some form of [vault lock](https://aws.amazon.com/blogs/aws/glacier-vault-lock/) with WORM capability. For example Amazon S3 supports WORM (Write Once Read Many) functionality through S3 Object Lock, which allows you to store objects in a way that they cannot be changed or deleted after they have been written. This feature is useful for regulatory compliance and data protection. In practise this means that even if the ROOT account of the cloud provider gets compromised the backups will be safe. You will need to also configure lifecycle policies to ensure that costs don't skyrocket. Even if you are running on-prem consider using something like [AWS PrivateLink](https://aws.amazon.com/privatelink/) to link your local network and store your backups on cloud.
 
 Again keep in mind that here isolation is your best friend. If you restore a database you restore a database. This means that ALL your clients will be effected. Thus its very important to use devide and conquer here, meaning create backup and recovery plans that will allow you to perform a partial recovery for only the effected clients. This might mean that you dump all the database in the vault but allow your ops team to setup a partial restore proccess for the particular clients. Just have these defined and run recovery drills to verify you meet your RTO and RPO.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Ops as Ops Team
+    participant BackupSys as Backup System
+    participant WORM as WORM Storage (S3 Object Lock / Glacier Vault Lock)
+    participant DB as Database
+    participant Network as Secure Network (AWS PrivateLink)
+    participant Client as Client Application
+
+    Ops->>BackupSys: Initiate Backup Process
+    BackupSys->>DB: Dump Database (Per Client)
+    DB-->>BackupSys: Database Dump Created
+    BackupSys->>Network: Transfer Backup (PrivateLink)
+    Network-->>WORM: Store Backup (WORM Enabled)
+    WORM-->>BackupSys: Backup Write Confirmed (Immutable Storage)
+
+    Note right of WORM: Backup stored with vault lock (WORM). <br>Even root account compromise cannot delete.
+
+    Ops->>WORM: Configure Lifecycle Policy
+    WORM-->>Ops: Policy Enforced (Cost Control & Retention Management)
+
+    Note over Ops, WORM: Define retention policies to prevent cost escalation.
+
+    Client->>DB: Perform Transactions
+    DB-->>Client: Confirmed (Live Data Updated)
+
+    Note right of DB: Database serves live clients.
+
+    alt Data Loss or Corruption Detected
+        Ops->>WORM: Identify Affected Clients
+        Ops->>BackupSys: Initiate Partial Restore for Clients
+        BackupSys->>Network: Retrieve Affected Client Data
+        Network-->>DB: Restore Client Data (Isolated)
+        DB-->>Ops: Partial Restore Complete
+    end
+
+    Note over Ops: Regular recovery drills to ensure RTO & RPO compliance.
+
+
+```
 
 # Regarding scalability
 
