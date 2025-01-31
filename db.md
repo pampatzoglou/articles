@@ -189,7 +189,8 @@ spec:
 
 the sequence of event should look something like this:
 
-```sequenceDiagram
+```mermaid
+sequenceDiagram
     autonumber
     participant Helm as Helm Chart Installation
     participant ArgoCD as ArgoCD Controller
