@@ -1,4 +1,4 @@
-### **Into (WIP)**
+### **sInto (WIP)**
 
 A journey into discovering how to handle state through databases in a production environment with examples that I found useful. We will consider several aspects:
 
@@ -7,7 +7,7 @@ A journey into discovering how to handle state through databases in a production
 - [Regarding Isolation](#regarding-isolation)
 - [Regarding lifecycle management](#regarding-lifecycle-management)
 - [Regarding security](#regarding-security)
-- [Regarding Disaster recovery](#regarding-disaster-recovery)
+- [Regarding disaster recovery](#regarding-disaster-recovery)
 - [Regarding scalability](#regarding-scalability)
 - [Regarding observability](#regarding-observability)
 - [Regarding developers](#regarding-developers)
@@ -274,6 +274,8 @@ spec:
         - port: 9187
 
 ```
+
+> Keep in mind that you will probably need to give grafana or metabase etc access to your database. A good approach is to do this using the replicas to ensure that a big query doesn't take down prod.
 
 ## Authentication
 
@@ -763,7 +765,24 @@ pg_database:
     FROM pg_database;
 ```
 
-and then create an alert based on the particular metric. Just try to keep in mind that these will be queries that will get regurarly executied every time prometheus scrapes the exporter. So maybe you don't need exact numbers and could use good estimations. Try and use `EXPLAIN ANALYZE` to optimize.
+and then create an alert based on the particular metric. Try to keep in mind that these are queries that will run on the database every time prometheus queries the exporter. So think carefully, do you need to have exact values or estimates? Leverage `EXPLAIN ANALYZE` to verify what you are actually doing and take a minute to think if this query MUST run on your primary database or on a replica?
+
+```yaml
+pg_table:
+  metrics:
+  - name:
+      description: Name of the table
+      usage: LABEL
+  - row_count:
+      description: Estimated number of rows in the table
+      usage: GAUGE
+  query: >
+    SELECT relname AS name, reltuples::bigint AS row_count
+    FROM pg_class
+    JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
+    WHERE nspname NOT IN ('pg_catalog', 'information_schema') AND relkind = 'r';
+
+```
 
 ### How to make all these possible
 
