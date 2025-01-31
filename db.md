@@ -763,7 +763,7 @@ pg_database:
     FROM pg_database;
 ```
 
-and then create an alert based on the particular metric.
+and then create an alert based on the particular metric. Just try to keep in mind that these will be queries that will get regurarly executied every time prometheus scrapes the exporter. So maybe you don't need exact numbers and could use good estimations. Try and use `EXPLAIN ANALYZE` to optimize.
 
 ### How to make all these possible
 
