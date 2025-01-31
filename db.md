@@ -151,7 +151,7 @@ metadata:
   name: {{ include "chart.fullname" . }}-db-create-{{ randAlphaNum 5 | lower }}
   annotations:
     "helm.sh/hook": pre-install
-    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-weight": "-20"
     "helm.sh/hook-delete-policy": before-hook-creation
     "argocd.argoproj.io/hook": "PreSync"
     "argocd.argoproj.io/hook-delete-policy": "BeforeHookCreation"
@@ -174,9 +174,9 @@ metadata:
   name: {{ include "chart.fullname" . }}-db-migrate-{{ randAlphaNum 5 | lower }}
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-weight": "-10"
     "helm.sh/hook-delete-policy": before-hook-creation
-    "argocd.argoproj.io/hook": "PreSync"
+    "argocd.argoproj.io/hook": "Sync"
     "argocd.argoproj.io/hook-delete-policy": "BeforeHookCreation"
     "argocd.argoproj.io/job-cleanup": "keep"
 spec:
@@ -199,21 +199,25 @@ sequenceDiagram
     participant App as Application
 
     Helm->>ArgoCD: Apply Helm Chart (PreSync Hooks)
+  
+    %% Pre-Install Job: Database Creation %%
     ArgoCD->>K8s: Create Pre-Install Job (db-create)
-    K8s->>DB: Execute Database Creation Job (Admin Credentials)
+    K8s->>DB: Initialize Database (Admin Credentials)
     DB-->>K8s: Database Created
     K8s-->>ArgoCD: Job db-create Completed
 
-    ArgoCD->>K8s: Create Pre-Install Job (db-migrate)
-    K8s->>DB: Execute Migration Job (Migration Credentials)
-    DB-->>K8s: Migration Completed
+    %% Pre-Install & Pre-Upgrade Job: Schema Migration %%
+    ArgoCD->>K8s: Create Pre-Install,Pre-Upgrade Job (db-migrate)
+    K8s->>DB: Apply Schema Migrations (Admin Credentials)
+    DB-->>K8s: Migrations Applied
     K8s-->>ArgoCD: Job db-migrate Completed
 
+    %% Proceed with Application Deployment %%
     ArgoCD->>Helm: Proceed with Deployment
     Helm->>K8s: Deploy Application
 
-    K8s->>DB: Create Runtime User (Read/Write Credentials)
-    K8s->>App: Deploy Application with Runtime Credentials
+    %% Application Runtime Using Limited Credentials %%
+    K8s->>App: Deploy with Runtime Credentials
     App->>DB: Connect to Database (Runtime Credentials)
     DB-->>App: Access Granted
 
@@ -539,7 +543,7 @@ sequenceDiagram
     Network-->>WORM: Store Backup (WORM Enabled)
     WORM-->>BackupSys: Backup Write Confirmed (Immutable Storage)
 
-    Note right of WORM: Backup stored with vault lock (WORM). <br>Even root account compromise cannot delete.
+    Note right of WORM: Backup stored with vault lock (WORM).
 
     Ops->>WORM: Configure Lifecycle Policy
     WORM-->>Ops: Policy Enforced (Cost Control & Retention Management)
