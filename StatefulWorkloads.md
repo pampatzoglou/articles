@@ -598,15 +598,8 @@ Running databases in any infrastructure involves the risk of failure. Kubernetes
 
 ## 1. Resource Requests and Limits for Databases
 Databases are resource-intensive and sensitive to performance degradation, so setting appropriate CPU and memory requests/limits is crucial:
+TODO
 
-CPU Requests & Limits:
-
-Set CPU requests based on the baseline load of the database.
-Avoid setting CPU limits unless necessary, as throttling can severely impact performance.
-Memory Requests & Limits:
-
-Memory requests should be equal to the expected working set size of the database.
-Memory limits should be set cautiously. if the database exceeds the limit, it may be OOM-killed, causing downtime.
 
 ## 2. QoS Class for Database Pods
 Kubernetes assigns QoS classes based on resource settings:
@@ -615,7 +608,7 @@ Kubernetes assigns QoS classes based on resource settings:
 * Burstable: Allows flexibility but risks eviction under high cluster load. Suitable for less critical workloads.
 * BestEffort: Most vulnerable to eviction. Not recommended for databases.
 
-Recommendation: Set both requests and limits to the same value to ensure a Guaranteed QoS class, reducing the chances of eviction.
+Recommendation: Set both requests and limits to the same value to ensure a Guaranteed QoS class, reducing the chances of eviction especially for the critical PRIMARY pod. Replicas can be Burstable as you will have multiple instances for them.
 
 ## 3. Pod Priority and Preemption
 When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods, you should leverage a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads. Example of a high-priority class:
