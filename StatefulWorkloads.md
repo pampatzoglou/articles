@@ -4,17 +4,18 @@ When managing stateful workloads, whether in Kubernetes or traditional infrastru
 
 ### Table of Contents
 
-- [Regarding Isolation](#regarding-isolation)
-- [Regarding lifecycle management](#regarding-lifecycle-management)
-- [Regarding security](#regarding-security)
-- [Regarding disaster recovery](#regarding-disaster-recovery)
-- [Regarding scalability](#regarding-scalability)
-- [Regarding observability](#regarding-observability)
-- [Regarding developers](#regarding-developers)
+- [Isolation](#isolation)
+- [Lifecycle management](#lifecycle-management)
+- [Security](#security)
+- [Disaster Recovery](#disaster-recovery)
+- [Scalability](#scalability)
+- [Prepare for the Ugly: Ensuring Database Stability in Kubernetes](#Prepare-for-the-Ugly)
+- [Observability](#observability)
+- [Stakeholders](#developers)
 
 Let’s dive in.
 
-# Regarding Isolation
+# Isolation
 
 Let's primarily focus on the isolation options for a database.
 
@@ -142,7 +143,7 @@ In a Kubernetes context you should be using different and unique security contex
 
 ```
 
-# Regarding lifecycle management
+# Lifecycle management
 
 Use two different jobs to handle the distinct aspects of the application lifecycle. The first Job runs first only on installation and its single responsibility is to create the database with the required parameters. In fact, it will run even before installation as we use the `pre-install` hook, which means before any application-specific resources are created.
 
@@ -227,7 +228,7 @@ sequenceDiagram
     DB-->>App: Data Retrieved/Updated
 ```
 
-# Regarding security
+# Security
 
 Security includes multiple aspects that we will approach.
 
@@ -325,7 +326,7 @@ There are several approaches to facilitating this but here I will dive into my f
 
 I consider Vault the root user of all databases. It gives access to all of them and with secret engines, eg [postgres](https://developer.hashicorp.com/vault/docs/secrets/databases/postgresql) it can generate [ephimeral credentials](https://developer.hashicorp.com/vault/docs/secrets/databases/postgresql).
 
-These credentials can be mapped to IAM roles, or use [external secrets operator](https://external-secrets.io/latest/introduction/overview/) or vault secrets operator. Whichever approach in the end, a short-lived username/password is generated that accesses the single database or schema with the required permissions. Keep in mind that these should be different for the process that handles schema (which needs to have elevated access eg to create a table) and for the normal app/role that will be allowed to only read/write/update but never delete or drop. The beauty of this is that from the developer's perspective it's the same secret (though different values) that the application uses. So they will not need to bother with the overhead of this logic in the application code. The downside of this approach is that when values change, it will require that the pod gets restated which may cascade and have issues with PDB.
+These credentials can be mapped to IAM roles, or use [external secrets operator](https://external-secrets.io/latest/introduction/overview/) or vault secrets operator. Whichever approach is in the end, a short-lived username/password is generated that accesses the single database or schema with the required permissions. Keep in mind that these should be different for the process that handles schema (which needs to have elevated access eg to create a table) and for the normal app/role that will be allowed to only read/write/update but never delete or drop. The beauty of this is that from the developer's perspective, it's the same secret (though different values) that the application uses. So they will not need to bother with the overhead of this logic in the application code. The downside of this approach is that when values change, it will require that the pod gets restated which may cascade and have issues with PDB.
 
 An example generate the aforementioned secrets using the vault and external secrets operator is:
 
@@ -352,7 +353,7 @@ vault write database/roles/runtime-user \
     max_ttl="1h"
 ```
 
-Then by using some facilitator service you can have dynamic secrets where they need to be. The ones most offtenly used are either vault agent that will use some annotations to setup the credentials for the pod or external secrets operator which will interact with the vault and generate the kubernetes sercret that will be used. Some more [examples](https://dev.to/breda/dynamic-postgresql-credentials-using-hashicorp-vault-with-php-symfony-go-examples-4imj)
+Then by using some facilitator service, you can have dynamic secrets where they need to be. The ones most often used are either vault agent which will use some annotations to setup the credentials for the pod or the external secrets operator which will interact with the vault and generate the Kubernetes secret that will be used. Some more [examples](https://dev.to/breda/dynamic-postgresql-credentials-using-hashicorp-vault-with-php-symfony-go-examples-4imj)
 
 ```yaml
 ---
@@ -503,7 +504,7 @@ Nevertheless, even with RLS the two issues remain:
 
 Once you have stopped using Shared Database with Shared Schema the authorization portion becomes rather simple and fast. This is because you how have access rules that are applied once when you start the cursor to the database and it will no longer need to be re-calculated for each query the cursor makes.
 
-# Regarding Disaster Recovery
+# Disaster Recovery
 
 **Disaster Recovery (DR)** is a set of policies, tools, and procedures designed to restore IT infrastructure and operations after a disaster (e.g., cyberattacks, hardware failures, natural disasters, or human errors). It ensures business continuity by minimizing downtime and data loss.
 
@@ -572,7 +573,7 @@ sequenceDiagram
 
 ```
 
-# Regarding scalability
+# Scalability
 
 This entire setup considers a single database that can be used for read and write. You can also create different instances and "schedule" your tenants to them to have even balances. But sooner or later you will probably need to leverage different paths for read and write. This means replication, and replication means eventual consistency. Ignoring for now the eventual consistency logic, the architecture for this is as follows:
 
@@ -605,13 +606,15 @@ Avoid setting CPU limits unless necessary, as throttling can severely impact per
 Memory Requests & Limits:
 
 Memory requests should be equal to the expected working set size of the database.
-Memory limits should be set cautiously—if the database exceeds the limit, it may be OOM-killed, causing downtime.
+Memory limits should be set cautiously. if the database exceeds the limit, it may be OOM-killed, causing downtime.
+
 ## 2. QoS Class for Database Pods
 Kubernetes assigns QoS classes based on resource settings:
 
-Guaranteed: Assigns the highest priority and prevents eviction due to resource pressure. Requires CPU and memory requests to match limits.
-Burstable: Allows flexibility but risks eviction under high cluster load. Suitable for less critical workloads.
-BestEffort: Most vulnerable to eviction. Not recommended for databases.
+* Guaranteed: Assigns the highest priority and prevents eviction due to resource pressure. Requires CPU and memory requests to match limits.
+* Burstable: Allows flexibility but risks eviction under high cluster load. Suitable for less critical workloads.
+* BestEffort: Most vulnerable to eviction. Not recommended for databases.
+
 Recommendation: Set both requests and limits to the same value to ensure a Guaranteed QoS class, reducing the chances of eviction.
 
 ## 3. Pod Priority and Preemption
@@ -631,7 +634,7 @@ globalDefault: false
 description: "Priority for critical database workloads"
 ```
 
-Assign the priority class to database deployments, keepingin mind that the primary instance is more critical than replicas:
+Assign the priority class to database deployments, keeping in mind that the primary instance is more critical than replicas:
 
 ```yaml
 ...
@@ -653,82 +656,7 @@ Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single p
 
 
 
-1. Resource Requests and Limits for Databases
-Databases are resource-intensive and sensitive to performance degradation, so setting appropriate CPU and memory requests/limits is crucial:
-
-CPU Requests & Limits:
-
-Set CPU requests based on the baseline load of the database.
-Avoid setting CPU limits unless necessary, as throttling can severely impact performance.
-Memory Requests & Limits:
-
-Memory requests should be equal to the expected working set size of the database.
-Memory limits should be set cautiously—if the database exceeds the limit, it may be OOM-killed, causing downtime.
-2. QoS Class for Database Pods
-Kubernetes assigns QoS classes based on resource settings:
-
-Guaranteed: Assigns the highest priority and prevents eviction due to resource pressure. Requires CPU and memory requests to match limits.
-Burstable: Allows flexibility but risks eviction under high cluster load. Suitable for less critical workloads.
-BestEffort: Most vulnerable to eviction. Not recommended for databases.
-Recommendation: Set both requests and limits to the same value to ensure a Guaranteed QoS class, reducing the chances of eviction.
-
-3. Pod Priority and Preemption
-When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods:
-
-Use a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads.
-
-Example of a high-priority class:
-```yaml
-apiVersion: scheduling.k8s.io/v1
-kind: PriorityClass
-metadata:
-  name: database-critical
-value: 1000000
-globalDefault: false
-description: "Priority for critical database workloads"
-```
-
-Assign the priority class to database workloads:
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-database
-spec:
-  template:
-    spec:
-      priorityClassName: database-critical
-```
-
-4. Handling Database Pod Termination Gracefully
-Database pods should shut down cleanly to avoid data corruption. Set:
-
-TerminationGracePeriodSeconds: Provide enough time for the database to flush buffers and close connections (e.g., 120s).
-
-PreStop Hook: Execute graceful shutdown scripts before termination.
-
-lifecycle:
-  preStop:
-    exec:
-      command: ["sh", "-c", "pg_ctl stop -m fast"]  # Example for PostgreSQL
 5. Anti-Affinity and Pod Disruption Budgets
-Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
-
-Pod Disruption Budget (PDB): Ensure at least one database pod remains available during voluntary disruptions.
-```yaml
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: db-pdb
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: my-database
-```
-
-By carefully configuring Kubernetes resources, QoS, priority, and graceful shutdown mechanisms, you can prepare for the ugly and minimize disruptions to your database workloads.
-
 To ensure high availability and resilience for database pods, you can use node anti-affinity and zone anti-affinity rules in Kubernetes. This prevents all database pods from being scheduled on the same node or within the same availability zone, reducing the risk of downtime due to node or zone failures.
 
 ```yaml
@@ -749,9 +677,9 @@ To ensure high availability and resilience for database pods, you can use node a
                     app: my-database
                 topologyKey: "topology.kubernetes.io/zone"  # Prefer different zones
 ```
+Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
 
-Pod Disruption Budget (PDB): Ensure at least one database pod remains available during voluntary disruptions.
-
+Pod Disruption Budget (PDB): Ensures at least one database pod remains available during voluntary disruptions.
 ```yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -763,10 +691,10 @@ spec:
     matchLabels:
       app: my-database
 ```
+
 By carefully configuring Kubernetes resources, QoS, priority, and graceful shutdown mechanisms, you can prepare for the ugly and minimize disruptions to your database workloads.
 
-
-# Regarding observability
+# Observability
 
 Sample Prometheus rule regarding a generic app database that can be used as a reference.
 
@@ -973,8 +901,15 @@ Estimate vs. Exact: Uses reltuples from pg_class, which is an estimate based on 
 Performance Impact: This query is fast since it avoids scanning entire tables.
 Primary vs. Replica: Ideally, run on a replica if available, as stats are not real-time but good enough for monitoring.
 
-### How to make all these possible
+# Stakeholders
 
+## Business: Justify, Estimate, and Monitor Costs
+When working with business stakeholders, your main concerns will likely revolve around [Premature Scaling]([link](https://insights.roozbeh.ca/premature-scaling-a-challenge-in-enterprise-readiness-459d7a483654)) and [Infrastructure Cost Leverage]([link](https://insights.roozbeh.ca/infrastructure-cost-leverage-icl-09246939bf44)). To align with their priorities: Clearly justify why each step is necessary. Provide cost estimations, especially based on CPU and resource requirements. Demonstrate cost monitoring strategies to prevent budget overruns. Remember, business teams are balancing financial resources across multiple departments. They see infrastructure as an investment—make sure they understand the return.
+
+## Developers: Observe, Adapt, and Abstract
+Don't assume how developers work—observe, verify, and validate before introducing changes. To be an effective DevOps engineer: Understand their existing workflows before making recommendations. Build internal tooling that simplifies their processes. Abstract complexity, but recognize that it still exists—hiding it doesn't mean it disappears. Your goal is to empower developers with seamless tooling while ensuring operational efficiency under the hood.
+
+## Tools and more examples
 devbox: Help developers set up their environment in a constant manner.
 Justfile: Help standardize actions, especially the ones with friction. A good example of this is generating dynamic credentials for your engineering teams, consider the following solution that uses bitwarden to fetch some secrets that will be used for the  next steps:
 
@@ -1026,13 +961,6 @@ _aws:
     echo "export AWS_ACCESS_KEY_ID=\"$access_key\""
     echo "export AWS_SECRET_ACCESS_KEY=\"$secret_key\""
 ```
-
-# Aligning with Business and Developers
-## Business: Justify, Estimate, and Monitor Costs
-When working with business stakeholders, your main concerns will likely revolve around [Premature Scaling]([link](https://insights.roozbeh.ca/premature-scaling-a-challenge-in-enterprise-readiness-459d7a483654)) and [Infrastructure Cost Leverage]([link](https://insights.roozbeh.ca/infrastructure-cost-leverage-icl-09246939bf44)). To align with their priorities: Clearly justify why each step is necessary. Provide cost estimations, especially based on CPU and resource requirements. Demonstrate cost monitoring strategies to prevent budget overruns. Remember, business teams are balancing financial resources across multiple departments. They see infrastructure as an investment—make sure they understand the return.
-
-## Developers: Observe, Adapt, and Abstract
-Don't assume how developers work—observe, verify, and validate before introducing changes. To be an effective DevOps engineer: Understand their existing workflows before making recommendations. Build internal tooling that simplifies their processes. Abstract complexity, but recognize that it still exists—hiding it doesn't mean it disappears. Your goal is to empower developers with seamless tooling while ensuring operational efficiency under the hood.
 
 # Material:
 The following resources can't be recommended enough.
