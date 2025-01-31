@@ -1,4 +1,4 @@
-### **sInto (WIP)**
+### **Into (WIP)**
 
 A journey into discovering how to handle state through databases in a production environment with examples that I found useful. We will consider several aspects:
 
@@ -577,7 +577,8 @@ This entire setup considers a single database that can be used for read and writ
 1. Create a high-availability setup. You can use leader election or other strategies, but for simplicity let's assume that the PRIMARY is defined. The optimal approach here is to create read REPLICAS ensuring with anti-affinity that each read replica lives in a different AZ. This is especially important considering that block storage volumes are AZ-locked and can't easily migrate between zones.
 2. Then you have the issue of query routing. Here again, there are two main approaches that work well, depending if you prefer to pay the development overhead or leverage a standard solution:
    1. Use a read and a write connection string, and have the application create different connections that produce a read and a read_write cursor to the database. Then the application explicitly selects what to use for each case.
-   2. Use a service like pgPool that will act like a reverse proxy to the database and depending on its selection or update the query, route the query to the correct instance type. Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc.
+   2. Use a service like pgPool that will act like a reverse proxy to the database and depending on if its select or update query, route the query to the correct instance type. 
+Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc. Also pgpool includes logic regarding replica load to select a replica with less stress to run the query. 
 
 # Regarding observability
 
