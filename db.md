@@ -1,8 +1,8 @@
-### **Into (WIP)**
+# **Operational Considerations for Managing Stateful Workloads**
 
-A journey into discovering how to handle state through databases in a production environment with examples that I found useful. We will consider several aspects:
+When managing stateful workloads, whether in Kubernetes or traditional infrastructure, operational concerns like isolation, lifecycle management, security, disaster recovery, scalability, and observability take center stage. While my examples focus on PostgreSQL and Kubernetes, the principles and best practices discussed here are broadly applicable to any environment. This article approaches these topics from an  **operations perspective**, prioritizing reliability, maintainability, and resilience. The goal is not just to get a database running but to ensure it operates efficiently, scales appropriately, and remains secure under real-world conditions. We’ll explore key aspects of running stateful workloads, from managing failure domains to ensuring observability, and how these impact both operations teams and developers. Whether you’re running a database in a cloud-native setup or on bare metal, these strategies will help you build a robust, well-managed system.
 
-# Table of Contents
+### Table of Contents
 
 - [Regarding Isolation](#regarding-isolation)
 - [Regarding lifecycle management](#regarding-lifecycle-management)
@@ -12,9 +12,11 @@ A journey into discovering how to handle state through databases in a production
 - [Regarding observability](#regarding-observability)
 - [Regarding developers](#regarding-developers)
 
+Let’s dive in.
+
 # Regarding Isolation
 
-Let's primerelaly focus on the isolation options for a database.
+Let's primarily focus on the isolation options for a database.
 
 ### **1. Shared Database, Shared Schema**
 
@@ -33,14 +35,14 @@ Let's primerelaly focus on the isolation options for a database.
     * botched operations will be global.
     * global recovery increases MTTR.
 * **Notes:**
-  One can use Row-Level Security (RLS) in Postgres to have some weak aggregated form of isolation, but its not isolation. We will dive into this subject as part of security.
+  One can use Row-Level Security (RLS) in Postgres to have some weak aggregated form of isolation, but it's not isolation. We will dive into this subject as part of security.
 
 > A bad idea here to shards tenants would be to use table prefixes. **DONT**.
 
 ### 2. **Shared Database, Separate Schema**
 
 * Each tenant has its own schema within a shared database. Table names etc within the schema should be consistent to simplify development.
-* Schema-based isolation improves security and performance. From a security perspective, this isolation is considered weak because you need to protect from:
+* Schema-based isolation improves security and performance. From a security perspective, this isolation is considered weak because you need to protect yourself from:
   * Schema Privilege Escalation
   * Cross-Schema Injection Risks
 * **Pros:**
@@ -118,7 +120,7 @@ Let's primerelaly focus on the isolation options for a database.
             HTTPPutResponseHopLimit: 1
     ```
 
-In a kubernetes context you should be using different and unique security contexts per instance, dropped capabilities and with AppArmor or SeLinux, eg:
+In a Kubernetes context you should be using different and unique security contexts per instance, dropped capabilities, and with AppArmor or SELinux, eg:
 
 ```yaml
 ---
@@ -279,19 +281,19 @@ spec:
 
 ## Authentication
 
-Authentication is what happens after someone knocks on your door (port). What is required is for them to proove that they are who they claim to be in an acceptable format. There are two main types of methods to do this but always remember that no matter which approach you select what you want is to have is a safe central place where these are controlled. If you choose to do a bit of mix a match, make sure that you have clear separation of method with a clear understanding of why. The worse thing you can do here is to leverage multiple ways to authenticate on the same resources because you will lose track. Also to avoid suprises make sure that your authentication methods will work for production requirements and developers. Personally I recommend using service authentication between "stuff" that are offered by your cloud provider and your cluster's workloads and credentials between your engineering teams, your applications and the databases.
+Authentication is what happens after someone knocks on your door (port). What is required is for them to prove that they are who they claim to be in an acceptable format. There are two main types of methods to do this but always remember that no matter which approach you select what you want is to have a safe central place where these are controlled. If you choose to do a bit of mix a match, make sure that you have a clear separation of methods with a clear understanding of why. The worse thing you can do here is to leverage multiple ways to authenticate on the same resources because you will lose track. Also to avoid suprises make sure that your authentication methods will work for production requirements and developers. Personally I recommend using service authentication between "stuff" that are offered by your cloud provider and your cluster's workloads and credentials between your engineering teams, your applications, and the databases.
 
-### authentication through roles
+### Authentication through roles
 
 Authentication through roles means that you either trust some services metadata or their serviceAccount to allow them to do a particular action.
 
-### authentication through credential
+### Authentication through credential
 
-Authentication though credentials means that the service or user can actually produce a username/password combination that allows you to connect. A bit of a heads up here is that its safer to use files as source of credentials for any application instead of using environmental variables for the simple reason that if someone runs `ps env` they will read the entire environment of the container and thus the credentials used. Also consider that dynamic credentials are far better than static ones. Using dynamic credentials means that there are no credentials to be saved in the code or reused though .env that might be shared between team members.
+Authentication through credentials means that the service or user can produce a username/password combination that allows you to connect. A bit of a heads-up here is that it's safer to use files as a source of credentials for any application instead of using environmental variables for the simple reason that if someone runs `ps env` they will read the entire environment of the container and thus the credentials used. Also, consider that dynamic credentials are far better than static ones. Using dynamic credentials means that there are no credentials to be saved in the code or reused through .env that might be shared between team members.
 
-> Do not try and bend the spoon, that's impossible. Instead try to realise the truth, there is no spoon.
+> Do not try and bend the spoon, that's impossible. Instead, try to realize the truth, there is no spoon.
 
-Now let's get dirty, in reality your application should have two procceses, one that handles the schema through migrations and a second for normal operation. This means that you will have some secrets in the cluster that will look like this:
+Now let's get dirty, in reality, your application should have two processes, one that handles the schema through migrations and a second for normal operation. This means that you will have some secrets in the cluster that will look like this:
 
 ```yaml
 ---
@@ -451,15 +453,15 @@ The main problem is that by nature of vault etc, not all of these can be automat
         vault.hashicorp.com/agent-pre-populate-only: "false"...
 ```
 
-Which ever method you select, keep in mind that at the end it will mean that the client gets a token/key to use. Basically a passport that they will then use for authorization.
+Whichever method you select, keep in mind that at the end it will mean that the client gets a token/key to use. Basically, a passport that they will then use for authorization.
 
 ## Authorization
 
-Authorization is what happens after a user or a proccess used their credentials or token and has some form of access. So after a connection has been established and authentication is complete, authorization answers the question: what can I do?
+Authorization is what happens after a user or a process used their credentials or token and has some form of access. So after a connection has been established and authentication is complete, authorization answers the question: what can I do?
 
 ### Shared Database, Shared Schema
 
-Previously we have mentioned Row-Level Security (RLS). RLS is a method to define in a shared database and shared tables, who can do what. In essence what you want is to try and block tenant1 from reading or writing entries that belong to tenant2. RLS is a way to atchive this result but at a computational cost for the database. For **each query** the database will need to check if the cursor has the required access to the particular row and then perform the actual query with the mentioned `WHERE tenant_id`. All this wll add delay.
+Previously we have mentioned Row-Level Security (RLS). RLS is a method to define in a shared database and shared tables, who can do what. In essence, what you want is to try and block tenant1 from reading or writing entries that belong to tenant2. RLS is a way to achieve this result but at a computational cost for the database. For **each query** the database will need to check if the cursor has the required access to the particular row and then perform the actual query with the mentioned `WHERE tenant_id`. All this will add delay.
 
 ```sql
 --- Enable Row-Level Security (RLS) on the target table.
@@ -495,11 +497,11 @@ Nevertheless, even with RLS the two issues remain:
 1. It's considered easy to jailbreak.
 2. You will still need to create a migrations-like process that will generate and update the RLS as you add new tenants.
 
-   I would suggest experimenting with using `EXPLAIN` and `EXPLAIN ANALYZE` on your data to see how it works on your system. Depending on scale, some organizations will be happy to accept the RLS overhead, and for some it will be a significant price that will drive them to adopt a different approach. From expirience what tends to happen is that organization start by using RLS and at some point start to split their clients into higher tiers where multitennancy is offered.
+   I would suggest experimenting with using `EXPLAIN` and `EXPLAIN ANALYZE` on your data to see how it works on your system. Depending on the scale, some organizations will be happy to accept the RLS overhead, and for some, it will be a significant price that will drive them to adopt a different approach. From experience what tends to happen is that organizations start by using RLS and at some point start to split their clients into higher tiers where multitenancy is offered.
 
 ### Shared Database, Separate Schema or better
 
-Once you have stopped using Shared Database with Shared Schema the authorization portion becomes rather simple and fast. This is because you how have access rules that are applied once when you start the cursor to the database and it will no longer need to be re calculated for each query the cursor makes.
+Once you have stopped using Shared Database with Shared Schema the authorization portion becomes rather simple and fast. This is because you how have access rules that are applied once when you start the cursor to the database and it will no longer need to be re-calculated for each query the cursor makes.
 
 # Regarding Disaster Recovery
 
@@ -512,9 +514,9 @@ Once you have stopped using Shared Database with Shared Schema the authorization
 3. **Recovery Time Objective (RTO)** – Maximum acceptable downtime before services must be restored.
 4. **Recovery Point Objective (RPO)** – Maximum acceptable data loss measured in time (e.g., last backup timestamp).
 
-In my opinion a common misconception is that HA setups offer DR. While they can be handy in some cases for example by mitigating restarts etc through failovers and redundancy, replicas should not be considered disaster recovery sources for the simple reason that they might be also corrupted or lost. Disaster recovery should mean that you have a path from being completely owned.
+In my opinion, a common misconception is that HA setups offer DR. While they can be handy in some cases for example by mitigating restarts etc through failovers and redundancy, replicas should not be considered disaster recovery sources for the simple reason that they might be also corrupted or lost. Disaster recovery should mean that you have a path from being completely owned.
 
-In practice your first consairn is backup. Either you use a cronjob to perform a series of dumps or volume snapshots by the database or through velero, you will be doing something similar to
+In practice your first concern is backup. Either you use a cronjob to perform a series of dumps or volume snapshots by the database or through Velero, you will be doing something similar to
 
 ```yaml
 annotations:
@@ -524,9 +526,9 @@ annotations:
   pre.hook.backup.velero.io/timeout: 15m
 ```
 
-You can define these as complex as required using the RTO and RPO as definite guides. What you really need to pay special attention to is WHERE these are saved and WHY its safe. To be honest here the only real solution for this is to use some form of [vault lock](https://aws.amazon.com/blogs/aws/glacier-vault-lock/) with WORM capability. For example Amazon S3 supports WORM (Write Once Read Many) functionality through S3 Object Lock, which allows you to store objects in a way that they cannot be changed or deleted after they have been written. This feature is useful for regulatory compliance and data protection. In practise this means that even if the ROOT account of the cloud provider gets compromised the backups will be safe. You will need to also configure lifecycle policies to ensure that costs don't skyrocket. Even if you are running on-prem consider using something like [AWS PrivateLink](https://aws.amazon.com/privatelink/) to link your local network and store your backups on cloud.
+You can define these as complex as required using the RTO and RPO as definite guides. What you really need to pay special attention to is WHERE these are saved and WHY its safe. To be honest, here the only real solution for this is to use some form of [vault lock](https://aws.amazon.com/blogs/aws/glacier-vault-lock/) with WORM capability. For example, Amazon S3 supports WORM (Write Once Read Many) functionality through S3 Object Lock, which allows you to store objects in a way that they cannot be changed or deleted after they have been written. This feature is useful for regulatory compliance and data protection. In practice, this means that even if the ROOT account of the cloud provider gets compromised the backups will be safe. You will need to also configure lifecycle policies to ensure that costs don't skyrocket. Even if you are running on-prem consider using something like [AWS PrivateLink](https://aws.amazon.com/privatelink/) to link your local network and store your backups on the cloud.
 
-Again keep in mind that here isolation is your best friend. If you restore a database you restore a database. This means that ALL your clients will be effected. Thus its very important to use devide and conquer here, meaning create backup and recovery plans that will allow you to perform a partial recovery for only the effected clients. This might mean that you dump all the database in the vault but allow your ops team to setup a partial restore proccess for the particular clients. Just have these defined and run recovery drills to verify you meet your RTO and RPO.
+Again keep in mind that here isolation is your best friend. If you restore a database you restore a database. This means that ALL your clients will be affected. Thus it's very important to use divide and conquer here, meaning create backup and recovery plans that will allow you to perform a partial recovery for only the affected clients. This might mean that you dump all the database in the vault but allow your ops team to set up a partial restore process for the particular clients. Just have these defined and run recovery drills to verify you meet your RTO and RPO.
 
 ```mermaid
 sequenceDiagram
@@ -575,10 +577,20 @@ sequenceDiagram
 This entire setup considers a single database that can be used for read and write. You can also create different instances and "schedule" your tenants to them to have even balances. But sooner or later you will probably need to leverage different paths for read and write. This means replication, and replication means eventual consistency. Ignoring for now the eventual consistency logic, the architecture for this is as follows:
 
 1. Create a high-availability setup. You can use leader election or other strategies, but for simplicity let's assume that the PRIMARY is defined. The optimal approach here is to create read REPLICAS ensuring with anti-affinity that each read replica lives in a different AZ. This is especially important considering that block storage volumes are AZ-locked and can't easily migrate between zones.
-2. Then you have the issue of query routing. Here again, there are two main approaches that work well, depending if you prefer to pay the development overhead or leverage a standard solution:
+2. Then you have the issue of query routing. Here again, two main approaches work well, depending if you prefer to pay the development overhead or leverage a standard solution:
    1. Use a read and a write connection string, and have the application create different connections that produce a read and a read_write cursor to the database. Then the application explicitly selects what to use for each case.
-   2. Use a service like pgPool that will act like a reverse proxy to the database and depending on if its select or update query, route the query to the correct instance type. 
-Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc. Also pgpool includes logic regarding replica load to select a replica with less stress to run the query. 
+   2. Use a service like pgPool that will act like a reverse proxy to the database and depending on its selection or update the query, route the query to the correct instance type. Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc. You might want to further optimize connectivity by using a way to enable service topology aware routing between apps and pgPool but also between pgPool and database instance, eg:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgpool
+  annotations:
+    service.kubernetes.io/topology-aware-hints: "auto"
+spec:
+  topologyKeys:
+    - "topology.kubernetes.io/zone"
+```
 
 # Regarding observability
 
@@ -766,7 +778,7 @@ pg_database:
     FROM pg_database;
 ```
 
-and then create an alert based on the particular metric. Try to keep in mind that these are queries that will run on the database every time prometheus queries the exporter. So think carefully, do you need to have exact values or estimates? Leverage `EXPLAIN ANALYZE` to verify what you are actually doing and take a minute to think if this query MUST run on your primary database or on a replica?
+and then create an alert based on the particular metric. Try to keep in mind that these are queries that will run on the database every time Prometheus queries the exporter. So think carefully, do you need to have exact values or estimates? Leverage `EXPLAIN ANALYZE` to verify what you are actually doing and take a minute to think if this query MUST run on your primary database or on a replica.
 
 ```yaml
 pg_table:
@@ -789,4 +801,70 @@ Primary vs. Replica: Ideally, run on a replica if available, as stats are not re
 
 ### How to make all these possible
 
-These are the tools I leveraged:
+devbox: Help developers set up their environment in a constant manner.
+Justfile: Help standardize actions, especially the ones with friction. A good example of this is generating dynamic credentials for your engineering teams, consider the following solution that uses bitwarden to fetch some secrets that will be used for the  next steps:
+
+```bash
+# Default recipes list
+@default:
+    just --list
+
+# Check if Bitwarden is unlocked and prompt for unlock if needed
+# Returns the BW_SESSION token
+_bw:
+    #!/usr/bin/env bash
+    # bw config server https://vault.bitwarden.eu
+    vault_status=$(bw status | jq -r '.status')
+    if [ $vault_status = "locked" ]
+    then
+        echo "🔐 Bitwarden vault is locked. Attempting to unlock..." >&2
+        read -sp "Enter your Bitwarden password: " BW_PASSWORD
+        echo >&2
+        BW_SESSION=$(bw unlock --raw "$BW_PASSWORD")
+        if [ $? -ne 0 ]; then
+            echo "❌ Failed to unlock Bitwarden" >&2
+            exit 1
+        fi
+        echo "✅ Bitwarden vault unlocked successfully" >&2
+    else
+        BW_SESSION=$(bw unlock --check --raw)
+        echo "✅ Bitwarden vault is already unlocked" >&2
+    fi
+    echo "$BW_SESSION"
+
+# Export AWS credentials from Bitwarden
+_aws:
+    #!/usr/bin/env bash
+    BW_SESSION=$(just _bw)
+    creds=$(bw list items --session $BW_SESSION --folderid 425498e0-b0d7-4c7e-a27e-b26500ad72cd --search aws)
+    if [ -z "$creds" ]; then
+        echo "❌ No AWS credentials found in Bitwarden" >&2
+        exit 1
+    fi
+    region=$(echo $creds | jq -r '.[0] | .fields[] | select(.name == "region") | .value')
+    access_key=$(echo $creds | jq -r '.[0] | .fields[] | select(.name == "aws_access_key_id") | .value')
+    secret_key=$(echo $creds | jq -r '.[0] | .fields[] | select(.name == "aws_secret_access_key") | .value')
+    if [ -z "$region" ] || [ -z "$access_key" ] || [ -z "$secret_key" ]; then
+        echo "❌ Failed to extract AWS credentials from Bitwarden item" >&2
+        exit 1
+    fi
+    echo "export AWS_DEFAULT_REGION=\"$region\""
+    echo "export AWS_ACCESS_KEY_ID=\"$access_key\""
+    echo "export AWS_SECRET_ACCESS_KEY=\"$secret_key\""
+```
+
+# Aligning with Business and Developers
+## Business: Justify, Estimate, and Monitor Costs
+When working with business stakeholders, your main concerns will likely revolve around [Premature Scaling]([link](https://insights.roozbeh.ca/premature-scaling-a-challenge-in-enterprise-readiness-459d7a483654)) and [Infrastructure Cost Leverage]([link](https://insights.roozbeh.ca/infrastructure-cost-leverage-icl-09246939bf44)). To align with their priorities: Clearly justify why each step is necessary. Provide cost estimations, especially based on CPU and resource requirements. Demonstrate cost monitoring strategies to prevent budget overruns. Remember, business teams are balancing financial resources across multiple departments. They see infrastructure as an investment—make sure they understand the return.
+
+## Developers: Observe, Adapt, and Abstract
+Don't assume how developers work—observe, verify, and validate before introducing changes. To be an effective DevOps engineer: Understand their existing workflows before making recommendations. Build internal tooling that simplifies their processes. Abstract complexity, but recognize that it still exists—hiding it doesn't mean it disappears. Your goal is to empower developers with seamless tooling while ensuring operational efficiency under the hood.
+
+# Material:
+The following resources can't be recommended enough.
+https://www.amazon.com/Database-Internals-Deep-Distributed-Systems/dp/1492040347
+https://www.amazon.com/Designing-Data-Intensive-Applications-Reliable-Maintainable/dp/1449373321
+https://www.amazon.com/Software-Architecture-Trade-Off-Distributed-Architectures/dp/1492086894
+https://www.youtube.com/@DevOpsToolkit
+https://www.udemy.com/course/database-engines-crash-course
+https://samber.github.io/awesome-prometheus-alerts/rules.html
