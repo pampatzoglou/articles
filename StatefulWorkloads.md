@@ -9,7 +9,7 @@ When managing stateful workloads, whether in Kubernetes or traditional infrastru
 - [Security](#security)
 - [Disaster Recovery](#disaster-recovery)
 - [Scalability](#scalability)
-- [Prepare for the Ugly: Ensuring Database Stability in Kubernetes](#Prepare-for-the-Ugly)
+- [Prepare for the Ugly](#prepare-for-the-ugly-ensuring-database-stability-in-kubernetes)
 - [Observability](#observability)
 - [Stakeholders](#developers)
 
