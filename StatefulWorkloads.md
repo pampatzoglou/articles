@@ -651,14 +651,7 @@ PreStop Hook: Execute graceful shutdown scripts before termination.
 ## 5. Anti-Affinity and Pod Disruption Budgets
 Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
 
-ChatGPT
 
-You said:
-Create a section for an article named prepare for the ugly where it explains in kubernetes resources and qos that should be used for databases and also priorities to handle db pods getting killed 
-ChatGPT said:
-ChatGPT
-Prepare for the Ugly: Ensuring Database Stability in Kubernetes
-Running databases in Kubernetes comes with inherent risks—node failures, resource contention, and unpredictable pod evictions. To mitigate these risks, you need to configure Kubernetes resources, Quality of Service (QoS), and pod priority settings correctly to ensure stability and recoverability.
 
 1. Resource Requests and Limits for Databases
 Databases are resource-intensive and sensitive to performance degradation, so setting appropriate CPU and memory requests/limits is crucial:
@@ -685,7 +678,7 @@ When the cluster runs out of resources, Kubernetes evicts lower-priority pods fi
 Use a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads.
 
 Example of a high-priority class:
-
+```yaml
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -693,8 +686,10 @@ metadata:
 value: 1000000
 globalDefault: false
 description: "Priority for critical database workloads"
-Assign the priority class to database deployments:
+```
 
+Assign the priority class to database workloads:
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -703,6 +698,8 @@ spec:
   template:
     spec:
       priorityClassName: database-critical
+```
+
 4. Handling Database Pod Termination Gracefully
 Database pods should shut down cleanly to avoid data corruption. Set:
 
@@ -718,7 +715,7 @@ lifecycle:
 Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
 
 Pod Disruption Budget (PDB): Ensure at least one database pod remains available during voluntary disruptions.
-
+```yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -728,6 +725,7 @@ spec:
   selector:
     matchLabels:
       app: my-database
+```
 
 By carefully configuring Kubernetes resources, QoS, priority, and graceful shutdown mechanisms, you can prepare for the ugly and minimize disruptions to your database workloads.
 
