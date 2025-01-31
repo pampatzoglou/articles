@@ -618,11 +618,7 @@ Kubernetes assigns QoS classes based on resource settings:
 Recommendation: Set both requests and limits to the same value to ensure a Guaranteed QoS class, reducing the chances of eviction.
 
 ## 3. Pod Priority and Preemption
-When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods:
-
-Use a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads.
-
-Example of a high-priority class:
+When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods, you should leverage a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads. Example of a high-priority class:
 
 ```yaml
 apiVersion: scheduling.k8s.io/v1
@@ -643,20 +639,11 @@ spec:
     spec:
       priorityClassName: database-critical
 ```
+Consider here that your PRIMARY pods are more important than your REPLICAS, and also acknowledge that probably not all your tenants are equal. These aspects of reality should be reflected here.
 
-## 4. Handling Database Pod Termination Gracefully
-Database pods should shut down cleanly to avoid data corruption. Set:
-
-TerminationGracePeriodSeconds: Provide enough time for the database to flush buffers and close connections (e.g., 120s).
-
-PreStop Hook: Execute graceful shutdown scripts before termination.
-
-## 5. Anti-Affinity and Pod Disruption Budgets
+## 4. Anti-Affinity and Pod Disruption Budgets
 Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
 
-
-
-5. Anti-Affinity and Pod Disruption Budgets
 To ensure high availability and resilience for database pods, you can use node anti-affinity and zone anti-affinity rules in Kubernetes. This prevents all database pods from being scheduled on the same node or within the same availability zone, reducing the risk of downtime due to node or zone failures.
 
 ```yaml
@@ -692,7 +679,7 @@ spec:
       app: my-database
 ```
 
-By carefully configuring Kubernetes resources, QoS, priority, and graceful shutdown mechanisms, you can prepare for the ugly and minimize disruptions to your database workloads.
+By carefully configuring Kubernetes resources, QoS, priority, and graceful shutdown mechanisms, you can prepare for the eventuality of the  "ugly" and minimize disruptions to your database workloads.
 
 # Observability
 
@@ -897,7 +884,7 @@ pg_table:
     JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
     WHERE nspname NOT IN ('pg_catalog', 'information_schema') AND relkind = 'r';
 ```
-Estimate vs. Exact: Uses reltuples from pg_class, which is an estimate based on the last ANALYZE. This avoids a full COUNT(*), which is expensive.
+Estimate vs. Exact: Uses reltuples from pg_class, which generate an estimation based on the last ANALYZE. This avoids a full COUNT(*), which might be expensive.
 Performance Impact: This query is fast since it avoids scanning entire tables.
 Primary vs. Replica: Ideally, run on a replica if available, as stats are not real-time but good enough for monitoring.
 
@@ -911,7 +898,7 @@ Don't assume how developers work—observe, verify, and validate before introduc
 
 ## Tools and more examples
 devbox: Help developers set up their environment in a constant manner.
-Justfile: Help standardize actions, especially the ones with friction. A good example of this is generating dynamic credentials for your engineering teams, consider the following solution that uses bitwarden to fetch some secrets that will be used for the  next steps:
+Justfile: Help standardize actions, especially the ones with friction. A good example of this is generating dynamic credentials for your engineering teams, consider the following solution that uses BitWarden to fetch some secrets that will be used for the  next steps:
 
 ```bash
 # Default recipes list
@@ -961,6 +948,7 @@ _aws:
     echo "export AWS_ACCESS_KEY_ID=\"$access_key\""
     echo "export AWS_SECRET_ACCESS_KEY=\"$secret_key\""
 ```
+This example showcases the principle. The developer as a user does not need to save the credentials in their system to interact. Instead, a human-oriented method is used to fetch credentials for the next steps as required. Don't try to stop people from saving credentials. There is no `.env` file if the engineers have seamless ways of getting their job done.
 
 # Material:
 The following resources can't be recommended enough.
