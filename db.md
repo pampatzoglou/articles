@@ -781,8 +781,10 @@ pg_table:
     FROM pg_class
     JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
     WHERE nspname NOT IN ('pg_catalog', 'information_schema') AND relkind = 'r';
-
 ```
+Estimate vs. Exact: Uses reltuples from pg_class, which is an estimate based on the last ANALYZE. This avoids a full COUNT(*), which is expensive.
+Performance Impact: This query is fast since it avoids scanning entire tables.
+Primary vs. Replica: Ideally, run on a replica if available, as stats are not real-time but good enough for monitoring.
 
 ### How to make all these possible
 
