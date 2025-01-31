@@ -1,8 +1,10 @@
 ### **Into (WIP)**
 
 A journey into discovering how to handle state through databases in a production environment with examples that I found useful. We will consider several aspects:
+
 # Table of Contents
-- [Regarding architecture](#regarding-architecture)
+
+- [Regarding Isolation](#regarding-isolation)
 - [Regarding lifecycle management](#regarding-lifecycle-management)
 - [Regarding security](#regarding-security)
 - [Regarding Disaster recovery](#regarding-disaster-recovery)
@@ -10,8 +12,9 @@ A journey into discovering how to handle state through databases in a production
 - [Regarding observability](#regarding-observability)
 - [Regarding developers](#regarding-developers)
 
+# Regarding Isolation
 
-# Regarding Architecture
+Let's primerelaly focus on the isolation options for a database.
 
 ### **1. Shared Database, Shared Schema**
 
@@ -19,50 +22,18 @@ A journey into discovering how to handle state through databases in a production
 * Each entry includes a ``tenant_id`` column to segregate data.
 * Efficient use of resources is debatable because of the `WHERE tenant_id` will add overhead to each query.
 * **Pros:**
+
   * Simplifies deployment and maintenance.
 * **Cons:**
+
   * Requires strict tenant-aware data access controls. If you implement a ROW-level ACL (implementation follows).
   * Certain performance bottlenecks as the tenant count grows.
   * Extremely bad If there is a DR scenario:
     * All users will be affected as you will need to rollback ALL the database to the last known good state.
     * botched operations will be global.
     * global recovery increases MTTR.
- * **Notes:**
-   One can use Row-Level Security (RLS) in Postgres to have some weak form of isolation.
-   ```sql
-   --- Enable Row-Level Security (RLS) on the target table.
-   ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-   
-   --- Create a Security Policy for Tenants (restrict access to own rows).
-   CREATE POLICY tenant_row_access
-   ON orders
-   FOR ALL
-   USING (tenant_id = current_setting('app.current_tenant')::UUID);
-   
-   --- Ensure INSERT operations only allow the correct tenant_id.
-   CREATE POLICY tenant_insert_policy
-   ON orders
-   FOR INSERT
-   WITH CHECK (tenant_id = current_setting('app.current_tenant')::UUID);
-   
-   --- Grant basic permissions on the orders table to tenant-specific roles.
-   GRANT SELECT, INSERT, UPDATE, DELETE ON orders TO tenant_role;
-   
-   --- Set the tenant ID in the session (should be done by the application per request).
-   SELECT set_config('app.current_tenant', 'tenant-123', false);
-   
-   --- Example: Tenant 123 querying the orders table (will only return their own rows).
-   SELECT * FROM orders;
-   
-   --- Example: Trying to insert an order for another tenant (should fail).
-   INSERT INTO orders (id, tenant_id, order_name) VALUES (1, 'tenant-999', 'Test Order');
-   ```
-   Nevertheless, even with RLS the two issues remain:
-   1. There is always a `WHERE tenant_id` clause that turns binary searches into bitmap searches.
-   2. It's considered easy to jailbreak.
-   3. You will still need to create a migrations-like process that will generate and update the RLS as you add new tenants.
-   I would suggest experimenting with using `EXPLAIN` and `EXPLAIN ANALYZE` on your data to see how it works on your system.
-   
+* **Notes:**
+  One can use Row-Level Security (RLS) in Postgres to have some weak aggregated form of isolation, but its not isolation. We will dive into this subject as part of security.
 
 > A bad idea here to shards tenants would be to use table prefixes. **DONT**.
 
@@ -168,6 +139,7 @@ In a kubernetes context you should be using different and unique security contex
 
 
 ```
+
 # Regarding lifecycle management
 
 Use two different jobs to handle the distinct aspects of the application lifecycle. The first Job runs first only on installation and its single responsibility is to create the database with the required parameters. In fact, it will run even before installation as we use the `pre-install` hook, which means before any application-specific resources are created.
@@ -215,13 +187,93 @@ spec:
         - name: db-migrate
 ```
 
+the sequence of event should look something like this:
+
+```sequenceDiagram
+    autonumber
+    participant Helm as Helm Chart Installation
+    participant ArgoCD as ArgoCD Controller
+    participant K8s as Kubernetes
+    participant DB as Database
+
+    Helm->>ArgoCD: Apply Helm Chart (PreSync Hooks)
+    ArgoCD->>K8s: Create Pre-Install Job (db-create)
+    K8s->>DB: Execute Database Creation Job
+    DB-->>K8s: Database Created
+    K8s-->>ArgoCD: Job db-create Completed
+    ArgoCD->>K8s: Create Pre-Install Job (db-migrate)
+    K8s->>DB: Execute Migration Job
+    DB-->>K8s: Migration Completed
+    K8s-->>ArgoCD: Job db-migrate Completed
+    ArgoCD->>Helm: Proceed with Deployment
+    Helm->>K8s: Deploy Application
+```
+
 # Regarding security
 
-### How to make all these possible
+Security includes multiple aspects that we will approach.
 
-These are the tools I leveraged:
+## Access
 
-**note**: The db create entity requires superuser privileges to actually create the database. Thus it's better to not even trust the cluster to save a secret that contains this level of credentials. A better approach is to have a binary that can directly access the vault and directly get the required credentials. The `db migrate` job should apply the same principle but there will be problems with local development. As a compromise, two different secrets with different RBAC should be used to facilitate production security and development ease. Something like:
+In a nutshell access is who can knock on your door, meaning who can reach the port the database listens to. This might be enforced by security groups or network policies etc but in essence we are talking firewalls here.Following is an example of a NetworkPolicy (kubernetes firewall) that allows an app, the vault and prometheus to access it. Here we allow Prometheus running on monitoring namespace, the replicas from the same namespace, and vault from the vault namespace.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-db-postgresql-primary-ingress
+  labels:
+    app.kubernetes.io/instance: app-db
+    app.kubernetes.io/component: primary
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: app-db
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: primary
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: app-db
+              app.kubernetes.io/name: postgresql
+              app.kubernetes.io/component: read
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vault
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/instance: vault
+              app.kubernetes.io/name: vault
+      ports:
+        - port: 5432
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9187
+
+```
+
+## Authentication
+
+Authentication is what happens after someone knocks on your door (port). What is required is for them to proove that they are who they claim to be in an acceptable format. There are two main types of methods to do this but always remember that no matter which approach you select what you want is to have is a safe central place where these are controlled. If you choose to do a bit of mix a match, make sure that you have clear separation of method with a clear understanding of why. The worse thing you can do here is to leverage multiple ways to authenticate on the same resources because you will lose track. Also to avoid suprises make sure that your authentication methods will work for production requirements and developers. Personally I recommend using service authentication between "stuff" that are offered by your cloud provider and your cluster's workloads and credentials between your engineering teams, your applications and the databases.
+
+### authentication through roles
+
+Authentication through roles means that you either trust some services metadata or their serviceAccount to allow them to do a particular action.
+
+### authentication through credential
+
+Authentication though credentials means that the service or user can actually produce a username/password combination that allows you to connect. A bit of a heads up here is that its safer to use files as source of credentials for any application instead of using environmental variables for the simple reason that if someone runs `ps env` they will read the entire environment of the container and thus the credentials used. Also consider that dynamic credentials are far better than static ones. Using dynamic credentials means that there are no credentials to be saved in the code or reused though .env that might be shared between team members.
+
+> Do not try and bend the spoon, that's impossible. Instead try to realise the truth, there is no spoon.
+
+Now let's get dirty, in reality your application should have two procceses, one that handles the schema through migrations and a second for normal operation. This means that you will have some secrets in the cluster that will look like this:
 
 ```yaml
 ---
@@ -245,12 +297,9 @@ stringData:
   DB_PASSWORD: 
   DB_NAME: 
 
-
 ```
 
-#### Zookeeper
-
-Different databases, maybe different ingresses, different shit. Unless the architecture allows for simple configuration management I use zookeeper to keep all these in check. Each deployment's variables are saved in zookeeper with groups etc. To offer a central place for handling configuration. But this will need to be handled by application logic as there is no `zookeeper operator` to create dynamic configs. So in a nutshell if the devs can take it, use zookeeper, if not, handle these through the next option, the vault.
+There are several approaches to facilitating this but here I will dive into my favourite.
 
 #### Hashicorp vault
 
@@ -283,7 +332,7 @@ vault write database/roles/runtime-user \
     max_ttl="1h"
 ```
 
-Some more [examples](https://dev.to/breda/dynamic-postgresql-credentials-using-hashicorp-vault-with-php-symfony-go-examples-4imj)
+Then by using some facilitator service you can have dynamic secrets where they need to be. The ones most offtenly used are either vault agent that will use some annotations to setup the credentials for the pod or external secrets operator which will interact with the vault and generate the kubernetes sercret that will be used. Some more [examples](https://dev.to/breda/dynamic-postgresql-credentials-using-hashicorp-vault-with-php-symfony-go-examples-4imj)
 
 ```yaml
 ---
@@ -384,7 +433,82 @@ The main problem is that by nature of vault etc, not all of these can be automat
         vault.hashicorp.com/agent-pre-populate-only: "false"...
 ```
 
-# Regarding Disaster recovery
+Which ever method you select, keep in mind that at the end it will mean that the client gets a token/key to use. Basically a passport that they will then use for authorization.
+
+## Authorization
+
+Authorization is what happens after a user or a proccess used their credentials or token and has some form of access. So after a connection has been established and authentication is complete, authorization answers the question: what can I do?
+
+### Shared Database, Shared Schema
+
+Previously we have mentioned Row-Level Security (RLS). RLS is a method to define in a shared database and shared tables, who can do what. In essence what you want is to try and block tenant1 from reading or writing entries that belong to tenant2. RLS is a way to atchive this result but at a computational cost for the database. For **each query** the database will need to check if the cursor has the required access to the particular row and then perform the actual query with the mentioned `WHERE tenant_id`. All this wll add delay.
+
+```sql
+--- Enable Row-Level Security (RLS) on the target table.
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+
+--- Create a Security Policy for Tenants (restrict access to own rows).
+CREATE POLICY tenant_row_access
+ON orders
+FOR ALL
+USING (tenant_id = current_setting('app.current_tenant')::UUID);
+
+--- Ensure INSERT operations only allow the correct tenant_id.
+CREATE POLICY tenant_insert_policy
+ON orders
+FOR INSERT
+WITH CHECK (tenant_id = current_setting('app.current_tenant')::UUID);
+
+--- Grant basic permissions on the orders table to tenant-specific roles.
+GRANT SELECT, INSERT, UPDATE, DELETE ON orders TO tenant_role;
+
+--- Set the tenant ID in the session (should be done by the application per request).
+SELECT set_config('app.current_tenant', 'tenant-123', false);
+
+--- Example: Tenant 123 querying the orders table (will only return their own rows).
+SELECT * FROM orders;
+
+--- Example: Trying to insert an order for another tenant (should fail).
+INSERT INTO orders (id, tenant_id, order_name) VALUES (1, 'tenant-999', 'Test Order');
+```
+
+Nevertheless, even with RLS the two issues remain:
+
+1. It's considered easy to jailbreak.
+2. You will still need to create a migrations-like process that will generate and update the RLS as you add new tenants.
+
+   I would suggest experimenting with using `EXPLAIN` and `EXPLAIN ANALYZE` on your data to see how it works on your system. Depending on scale, some organizations will be happy to accept the RLS overhead, and for some it will be a significant price that will drive them to adopt a different approach. From expirience what tends to happen is that organization start by using RLS and at some point start to split their clients into higher tiers where multitennancy is offered.
+
+### Shared Database, Separate Schema or better
+
+Once you have stopped using Shared Database with Shared Schema the authorization portion becomes rather simple and fast. This is because you how have access rules that are applied once when you start the cursor to the database and it will no longer need to be re calculated for each query the cursor makes.
+
+# Regarding Disaster Recovery
+
+**Disaster Recovery (DR)** is a set of policies, tools, and procedures designed to restore IT infrastructure and operations after a disaster (e.g., cyberattacks, hardware failures, natural disasters, or human errors). It ensures business continuity by minimizing downtime and data loss.
+
+**Key Components of Disaster Recovery**
+
+1. **Backup & Restore** – Regular data backups to on-site, off-site, or cloud storage.
+2. **Disaster Recovery Plan (DRP)** – A documented strategy outlining recovery steps, responsibilities, and timelines.
+3. **Recovery Time Objective (RTO)** – Maximum acceptable downtime before services must be restored.
+4. **Recovery Point Objective (RPO)** – Maximum acceptable data loss measured in time (e.g., last backup timestamp).
+
+In my opinion a common misconception is that HA setups offer DR. While they can be handy in some cases for example by mitigating restarts etc through failovers and redundancy, replicas should not be considered disaster recovery sources for the simple reason that they might be also corrupted or lost. Disaster recovery should mean that you have a path from being completely owned.
+
+In practice your first consairn is backup. Either you use a cronjob to perform a series of dumps or volume snapshots by the database or through velero, you will be doing something similar to
+
+```yaml
+annotations:
+  backup.velero.io/backup-volumes: backup
+  post.hook.restore.velero.io/command: '["/bin/bash", "-c", "[ -f \"/scratch/backup.sql\" ] && PGPASSWORD=$POSTGRES_PASSWORD psql -U $POSTGRES_USER -h 127.0.0.1 -d $POSTGRES_DATABASE -f /scratch/backup.sql && rm -f /scratch/backup.sql;"]'
+  pre.hook.backup.velero.io/command: '["/bin/bash", "-c", "PGPASSWORD=$POSTGRES_PASSWORD pg_dump -U $POSTGRES_USER -d $POSTGRES_DATABASE -h 127.0.0.1 > /scratch/backup.sql && mkdir -p /bitnami/postgresql/backups && mv /scratch/backup.sql /bitnami/postgresql/backups"]'
+  pre.hook.backup.velero.io/timeout: 15m
+```
+
+You can define these as complex as required using the RTO and RPO as definite guides. What you really need to pay special attention to is WHERE these are saved and WHY its safe. To be honest here the only real solution for this is to use some form of [vault lock](https://aws.amazon.com/blogs/aws/glacier-vault-lock/) with WORM capability. For example Amazon S3 supports WORM (Write Once Read Many) functionality through S3 Object Lock, which allows you to store objects in a way that they cannot be changed or deleted after they have been written. This feature is useful for regulatory compliance and data protection. In practise this means that even if the ROOT account of the cloud provider gets compromised the backups will be safe. You will need to also configure lifecycle policies to ensure that costs don't skyrocket. Even if you are running on-prem consider using something like [AWS PrivateLink](https://aws.amazon.com/privatelink/) to link your local network and store your backups on cloud.
+
+Again keep in mind that here isolation is your best friend. If you restore a database you restore a database. This means that ALL your clients will be effected. Thus its very important to use devide and conquer here, meaning create backup and recovery plans that will allow you to perform a partial recovery for only the effected clients. This might mean that you dump all the database in the vault but allow your ops team to setup a partial restore proccess for the particular clients. Just have these defined and run recovery drills to verify you meet your RTO and RPO.
 
 # Regarding scalability
 
@@ -396,7 +520,9 @@ This entire setup considers a single database that can be used for read and writ
    2. Use a service like pgPool that will act like a reverse proxy to the database and depending on its selection or update the query, route the query to the correct instance type. Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc.
 
 # Regarding observability
+
 Sample Prometheus rule regarding a generic app database that can be used as a reference.
+
 ```yaml
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
@@ -565,6 +691,7 @@ spec:
 ```
 
 If you need some business-related logic to be exposed and alert on, then you can use the metrics exporter and create a custom metric, eg:
+
 ```yaml
 pg_database:
   metrics:
@@ -577,6 +704,9 @@ pg_database:
   query: SELECT pg_database.datname, pg_database_size(pg_database.datname) as bytes
     FROM pg_database;
 ```
+
 and then create an alert based on the particular metric.
 
+### How to make all these possible
 
+These are the tools I leveraged:
