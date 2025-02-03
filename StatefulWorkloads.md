@@ -76,7 +76,7 @@ Let's primarily focus on the isolation options for a database.
 
 ### 4. Separate databases instance per tenant
 
-* Each tenant is running on their own database, probably in their dedicated namespace. Or perhaps on a different region etc. At this level of isolation, it doesn't matter.
+* Each tenant is running on their own database, probably in their dedicated namespace, or perhaps on a different region etc. At this level of isolation, it doesn't matter.
 * Even stronger isolation because you don't rely only on db-level ACL but also network policies/firewall rules.
 * In essence it's a special case of the 3rd option with:
 * **Pros:**
@@ -669,9 +669,9 @@ Replica 2 --> Replica 2: Recovery
 Replica 2 -> New Primary: Replication Ongoing
 ```
 
-If all this logic sounds tricky, you are correct. If this looks like some form of [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) you are exactly right! That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors.
+If all this logic sounds tricky, you are correct. If this looks like some form of [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) you are exactly right! That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors. If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality and buisness realises that "[One Does Not Simply Walk Into Mordor](https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor)".
 
-If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality. If you don't manage to get the buy-in start by creating replicas for departments that don't need real time data, like CS etc. Use the replicas to get some hands on expirience with buisness inteligence pipelines.
+Recommendation: Even If you don't manage to get the buy-in to change the entire architecture of your application, start by creating a single replica for departments that don't need real time data, like CS etc. Use the replicas to get some hands on expirience with buisness inteligence pipelines feeling happy that a huge query will not nuke your database and effect your customers.
 
 # Prepare for the Ugly: Ensuring Database Stability in Kubernetes
 
@@ -749,7 +749,7 @@ Replicas are simpler because you will have a number of them and you should start
 
 ## 3. Pod Priority and Preemption
 
-When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods, you should leverage a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads. In reality what we are doing here is defining how the cluster will do triage once a bad schenario is happening. When PriorityClass is useful the "ugly" is not at our doorstep, it was walked in the house. At this point in time its not IF workloads will stop but WHICH workload has a higher probability of staying functional. And as always with probabilities dice are going to get rolled. What we are doing here is stacking the dice to try and minimize the fallout.
+When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods, you should leverage a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads. In reality what we are doing here is defining how the cluster will do triage once the building is on fire. When PriorityClass is useful the "ugly" is not at our doorstep, it was walked in the house. At this point in time its not IF workloads will stop but WHICH workload has a higher probability of staying functional. And as always with probabilities dice are going to get rolled. What we are doing here is stacking the dice to try and minimize the fallout.
 Example of a high-priority class:
 
 ```yaml
@@ -1029,9 +1029,7 @@ Primary vs. Replica: Ideally, run on a replica if available, as stats are not re
 
 ## Business: Justify, Estimate, and Monitor Costs
 
-When working with business stakeholders, your main concerns will likely revolve around [Premature Scaling]([link](https://insights.roozbeh.ca/premature-scaling-a-challenge-in-enterprise-readiness-459d7a483654)) and [Infrastructure Cost Leverage]([link](https://insights.roozbeh.ca/infrastructure-cost-leverage-icl-09246939bf44)). To align with their priorities: Clearly justify why each step is necessary. Provide cost estimations, especially based on CPU and resource requirements. Demonstrate cost monitoring strategies to prevent budget overruns. Remember, business teams are balancing financial resources across multiple departments. They see infrastructure as an investment—make sure they understand the return.
-
-### Tools and more examples to work with Buisness.
+When working with business stakeholders, your main concerns will likely revolve around [Premature Scaling]([link](https://insights.roozbeh.ca/premature-scaling-a-challenge-in-enterprise-readiness-459d7a483654)) and [Infrastructure Cost Leverage]([link](https://insights.roozbeh.ca/infrastructure-cost-leverage-icl-09246939bf44)). To align with their priorities: Clearly justify why each step is necessary. Provide cost estimations, especially based on CPU and resource requirements. Demonstrate cost monitoring strategies to prevent budget overruns. Remember, business teams are balancing financial resources across multiple departments. They see infrastructure as an investment—make sure they understand the return. Explain how all these contribute in their feature matrix.
 
 ## Developers: Observe, Adapt, and Abstract
 
