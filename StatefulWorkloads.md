@@ -657,7 +657,6 @@ New_Primary -> Data_Store: Writes
 
 ```
 
-
 ### Sequence Diagram: Upgrade Process with Replicas
 
 Below is a sequence diagram showing the upgrade process where first a replica moves to new nodes, followed by the primary, and then the remaining replicas.
@@ -681,11 +680,11 @@ HA_Controller -> Replica_3: Migrate to New Node
 New_Primary -> Client: Accept New Connections
 ```
 
-If all this logic sounds ricky, you are correct. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as HA_Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. Also this is why you really need either short lived connections from your applications or some code to handle these potential errors.
+If all this logic sounds ricky, you are correct. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as HA_Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors.
+
+If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster.
 
 # Prepare for the Ugly: Ensuring Database Stability in Kubernetes
-
-## Conclusion
 
 Running databases in any infrastructure involves the risk of failure. Kubernetes acknowledges these risks as part of life and offers ways to define how to react when these happen. To mitigate these risks, you need to configure Kubernetes resources, Quality of Service (QoS), and pod priority settings correctly to ensure stability and recoverability. Don't just hope for the best, define what happens when the ugly is at your doorstep.
 
