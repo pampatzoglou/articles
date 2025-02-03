@@ -1,6 +1,6 @@
 # **Operational Considerations for Managing Stateful Workloads**
 
-When managing stateful workloads, whether in Kubernetes or traditional infrastructure, operational concerns like isolation, lifecycle management, security, disaster recovery, scalability, and observability take center stage. While the examples focus on AWS PostgreSQL and Kubernetes, the principles and best practices discussed here are broadly applicable to any environment. This article approaches these topics from an  **operations perspective**, prioritizing reliability, maintainability, and resilience. The goal is not just to get a database running but to ensure it operates efficiently, scales appropriately, and remains secure under real-world conditions. We’ll explore key aspects of running stateful workloads, from managing failure domains to ensuring observability, and how these impact both operations teams and developers. Whether you’re running a database in a cloud-native setup or on bare metal, these strategies will help you build a robust, well-managed system.
+When managing stateful workloads, whether in Kubernetes or traditional infrastructure, operational concerns like isolation, lifecycle management, security, disaster recovery, scalability, and observability take center stage. While the examples focus on AWS, PostgreSQL and Kubernetes, the principles and best practices discussed here are broadly applicable to any environment. This article approaches these topics from an  **operations perspective**, prioritizing reliability, maintainability, and resilience. The goal is not just to get a database running but to ensure it operates efficiently, scales appropriately, and remains secure under real-world conditions. We’ll explore key aspects of running stateful workloads, from managing failure domains to ensuring observability, and how these impact both operations teams and developers. Whether you’re running a database in a cloud-native setup or on bare metal, these strategies will help you build a robust, well-managed system.
 
 ### Table of Contents
 
@@ -282,7 +282,8 @@ spec:
 
 ## Authentication
 
-Authentication is what happens after someone knocks on your door (port). What is required is for them to prove that they are who they claim to be in an acceptable format. There are two main types of methods to do this but always remember that no matter which approach you select what you want is to have a safe central place where these are controlled. If you choose to do a bit of mix a match, make sure that you have a clear separation of methods with a clear understanding of why. The worse thing you can do here is to leverage multiple ways to authenticate on the same resources because you will lose track. Also to avoid suprises make sure that your authentication methods will work for production requirements and developers. Personally I recommend using service authentication between "stuff" that are offered by your cloud provider and your cluster's workloads and credentials between your engineering teams, your applications, and the databases.
+Authentication is what happens after someone knocks on your door (port). What is required is for them to prove that they are who they claim to be in an acceptable format. There are two main types of methods to do this but always remember that no matter which approach you select what you want is to have a safe central place where these are controlled. If you choose to do a bit of mix a match, make sure that you have a clear separation of methods with a clear understanding of why. The worse thing you can do here is to leverage multiple ways to authenticate on the same resources because you will lose track. Also to avoid suprises make sure that your authentication methods will work for production requirements and developers.
+Personally I recommend using service authentication between "stuff" that are offered by your cloud provider and your cluster's workloads and credentials between your engineering teams, your applications, and the databases.
 
 ### Authentication through roles
 
@@ -573,15 +574,23 @@ sequenceDiagram
 
 ```
 
+For a bit of more clarity regarding DRPs. A plan is always a good thing and keeping it documented is even better. Documenting a DRP means that you don't just add words in a doc file. I means that you define strategies and tacktics. I means that you define decision points and have ready recovery scripts. You might do these in bash you might do these in ansible, it doesn't really matter. What really matters is that you:
+	* Know if you need to start a recovery.
+	* Know what is still OK and what you need to recover or otherwise what's the blast redius.
+	* Know what point in time you need to recover from.
+	* Know that you have tested these in past so you don't end up in a deeper hole.
+
 # Scalability
 
 This entire setup considers a single database that can be used for read and write. You can also create different instances and "schedule" your tenants to them to have even balances. But sooner or later you will probably need to leverage different paths for read and write. This means replication, and replication means eventual consistency. Ignoring for now the eventual consistency logic, the architecture for this is as follows:
 
 1. Create a high-availability setup. You can use leader election or other strategies, but for simplicity let's assume that the PRIMARY is defined. The optimal approach here is to create read REPLICAS ensuring with anti-affinity that each read replica lives in a different AZ. This is especially important considering that block storage volumes are AZ-locked and can't easily migrate between zones.
 2. Then you have the issue of query routing. Here again, two main approaches work well, depending if you prefer to pay the development overhead or leverage a standard solution:
-   1. Use a read and a write connection string, and have the application create different connections that produce a read and a read_write cursor to the database. Then the application explicitly selects what to use for each case.
-   2. Use a service like pgPool that will act like a reverse proxy to the database and depending on the query type (selection or update) will route the query to the correct instance type. For a deeper dive visit [Load Balancing/Query Routing using PGPOOL-II](https://www.mydbops.com/blog/load-balancingquery-routing-using-pgpool-ii-part-ii)
-Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc. You might want to further optimize connectivity by using a way to enable service topology aware routing between apps and pgPool but also between pgPool and database instance, eg:
+   * Use a read and a write connection string, and have the application create different connections that produce a read and a read_write cursor to the database. Then the application explicitly selects what to use for each case.
+   * Use a service like pgPool that will act like a reverse proxy to the database and depending on the query type (selection or update) will route the query to the correct instance type. For a deeper dive visit [Load Balancing/Query Routing using PGPOOL-II](https://www.mydbops.com/blog/load-balancingquery-routing-using-pgpool-ii-part-ii)
+
+Personally, I like the latter approach as it gives this power to the infrastructure teams which are more aware of what runs where etc. You might want to further optimize connectivity by using a way to enable service topology aware routing between apps and pgPool but also between pgPool and database instance ([Exploring the effect of Topology Aware Hints on network traffic in Amazon Elastic Kubernetes Service](https://aws.https://aws.amazon.com/blogs/containers/exploring-the-effect-of-topology-aware-hints-on-network-traffic-in-amazon-elastic-kubernetes-service/amazon.com/blogs/containers/exploring-the-effect-of-topology-aware-hints-on-network-traffic-in-amazon-elastic-kubernetes-service/)), eg:
+
 ```yaml
 apiVersion: v1
 kind: Service
@@ -593,25 +602,167 @@ spec:
   topologyKeys:
     - "topology.kubernetes.io/zone"
 ```
+
+# Database High Availability (HA) and Split Brain Risk During Upgrade
+
+In a database high availability (HA) setup that relies on long-running connections, upgrading and migrating to new nodes can introduce the risk of a split-brain scenario. This occurs when multiple nodes operate independently, believing they are the primary, leading to data inconsistency and potential loss of transactions.
+
+## Scenario Description
+
+During an upgrade, the following events may unfold:
+
+1. A primary database node is migrated or replaced.
+2. Long-running connections on existing nodes persist, unaware of the topology change.
+3. A new node is introduced as the new primary, but stale connections may still interact with the old node.
+4. Both old and new nodes process write operations independently.
+5. Data divergence occurs due to concurrent writes on both nodes.
+
+## Potential Causes of Split Brain
+
+* **Long-lived client connections:** Clients may not detect topology changes and continue writing to an old node.
+* **Network partitioning or delays:** Temporary network issues can cause nodes to operate independently.
+* **Failure in leader election mechanisms:** If multiple nodes incorrectly assume leadership, they can both accept writes.
+* **Lack of connection draining:** If client connections are not explicitly closed before failover, they may write to an outdated node.
+
+## Mitigation Strategies
+
+* **Connection Draining:** Ensure all active connections are gracefully closed before promoting a new node.
+* **Quorum-Based Consensus:** Use mechanisms like Raft or Paxos to avoid multiple leaders.
+* **Automated Failover Testing:** Simulate failover scenarios before deploying upgrades.
+* **Strict Fencing Mechanisms:** Implement strict write fencing to prevent stale nodes from accepting writes.
+* **Short-lived Connections:** Design clients to use short-lived or automatically re-established connections after failovers.
+
+Below is a sequence diagram illustrating a split-brain scenario during an upgrade.
+
+```mermaid
+sequenceDiagram
+
+Participant Client
+Participant Old_Primary
+Participant Replica_1
+Participant Replica_2
+Participant New_Primary
+
+Client -> Old_Primary: Open Long-Running Connection
+Old_Primary -> Replica_1: Replication Ongoing
+Old_Primary -> Replica_2: Replication Ongoing
+Old_Primary -> New_Primary: Migration Begins
+New_Primary -> Client: Accept New Connections
+Replica_1 -> Old_Primary: Still Syncing (Lost Track)
+Replica_2 -> Old_Primary: Still Syncing (Lost Track)
+Client -> Old_Primary: Writes to Old Primary
+Client -> New_Primary: Writes to New Primary
+Old_Primary -> Data_Store: Writes
+New_Primary -> Data_Store: Writes
+
+```
+
+
+### Sequence Diagram: Upgrade Process with Replicas
+
+Below is a sequence diagram showing the upgrade process where first a replica moves to new nodes, followed by the primary, and then the remaining replicas.
+
+```mermaid
+sequenceDiagram
+
+Participant Client
+Participant Old_Primary
+Participant Replica_1
+Participant Replica_2
+Participant Replica_3
+Participant New_Primary
+Participant HA_Controller
+
+HA_Controller -> Replica_1: Migrate to New Node
+HA_Controller -> Old_Primary: Migrate Primary to New Node
+HA_Controller -> New_Primary: Promote to Primary
+HA_Controller -> Replica_2: Migrate to New Node
+HA_Controller -> Replica_3: Migrate to New Node
+New_Primary -> Client: Accept New Connections
+```
+
+If all this logic sounds ricky, you are correct. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as HA_Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. Also this is why you really need either short lived connections from your applications or some code to handle these potential errors.
+
 # Prepare for the Ugly: Ensuring Database Stability in Kubernetes
-Running databases in any infrastructure involves the risk of failure. Kubernetes acknowledges these risks as part of life and offers ways to define how to react when these happen. To mitigate these risks, you need to configure Kubernetes resources, Quality of Service (QoS), and pod priority settings correctly to ensure stability and recoverability. Don't just hope for the best, define what happens when the ugly is at your doorstep. 
+
+## Conclusion
+
+Running databases in any infrastructure involves the risk of failure. Kubernetes acknowledges these risks as part of life and offers ways to define how to react when these happen. To mitigate these risks, you need to configure Kubernetes resources, Quality of Service (QoS), and pod priority settings correctly to ensure stability and recoverability. Don't just hope for the best, define what happens when the ugly is at your doorstep.
 
 ## 1. Resource Requests and Limits for Databases
-Databases are resource-intensive and sensitive to performance degradation, so setting appropriate CPU and memory requests/limits is crucial:
-TODO
 
+Databases are resource-intensive and sensitive to performance degradation, so setting appropriate CPU and memory requests/limits is crucial, especially keeping in mind that we will be handling state, which in reality removes elasticity. Dynamically adding replicas will increase the load on our system when scaling is required, as the new instances will need to be synced. But before diving deep, let's first define some good approaches to get reliable values.
 
-## 2. QoS Class for Database Pods
+### Memory Considerations
+
+Memory allocation for databases is critical since insufficient memory can lead to excessive swapping, slowing down performance, while over-allocating can waste valuable resources. Key factors to consider:
+
+* **Working Set Size (WSS):** Measure the actively used memory by the database.
+* **Buffer Cache Usage:** Monitor how efficiently the database caches data in memory.
+* **Peak Load Analysis:** Identify memory spikes during high traffic periods.
+* **Garbage Collection & Memory Fragmentation:** For databases like PostgreSQL and MongoDB, factor in memory management behaviors.
+
+#### **How to Determine Memory Resources**
+
+* Monitor `container_memory_working_set_bytes` over time.
+* Use `quantile_over_time(0.5, container_memory_working_set_bytes{namespace="%s", container="%s"}[6h])` to estimate a safe **request value**. You might want to use a higher quantile, but this will affect cost.
+* Use `quantile_over_time(0.999, container_memory_working_set_bytes{namespace="%s", container="%s"}[6h])` to estimate a safe **limit value**.
+* Ensure that you calculate over a time period with actual load.
+
+### CPU Considerations
+
+Databases often require consistent CPU resources, and unlike stateless applications, CPU throttling can significantly impact query performance and latency.
+
+* **Baseline Utilization:** Identify normal CPU usage using `sum(rate(container_cpu_usage_seconds_total[5m]))`.
+* **Latency-Sensitive Workloads:** If high query performance is required, avoid setting strict CPU limits.
+* **Parallel Processing:** For multi-threaded databases (e.g., PostgreSQL), ensure enough CPU cores are available.
+* **Scaling Considerations:** Vertical scaling (increasing CPU per instance) is often more effective than horizontal scaling due to sync overhead.
+
+#### **How to Determine CPU Resources**
+
+* Use `quantile_over_time(0.5, node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="%s", container="%s"}[24h])` to find a safe threshold.
+* Consider setting requests at the **90th percentile** to prevent throttling while ensuring efficient resource allocation.
+* Set CPU limits using `quantile_over_time(0.999, node_namespace_pod_container:container_cpu_usage_seconds_total:sum_irate{namespace="%s", container="%s"}[6h])` to prevent excessive resource usage while allowing headroom for bursts.
+
+### Disk I/O Considerations
+
+Databases rely heavily on disk performance, and slow I/O can severely degrade performance. Key aspects include:
+
+* **Read vs. Write Operations:** Analyze workload characteristics (e.g., OLTP vs. OLAP).
+* **Disk Latency:** Use metrics like `node_disk_read/write_latency_seconds` to assess disk performance.
+* **Storage Throughput:** Monitor `rate(node_disk_bytes_read/write_total[5m])` to determine IOPS requirements.
+* **SSD vs. HDD:** Use SSDs for low-latency and high-throughput workloads.
+
+#### **How to Determine Disk I/O Requirements**
+
+* Measure **average and peak disk utilization** over time.
+* Ensure  **sustained disk throughput meets database requirements** .
+* **Use provisioned IOPS storage** (e.g., AWS EBS gp3/io1) for consistent performance.
+
+### Final Considerations
+
+* **Profile Database Workloads:** Different databases (MySQL, PostgreSQL, MongoDB) have unique performance characteristics.
+* **Test Under Load:** Simulate real traffic to fine-tune resource requests and limits.
+* **Monitor & Adjust:** Continuously monitor resource usage and adjust based on observed trends.
+
+By following these best practices, we can ensure stable, efficient, and performant database deployments without over-allocating resources or causing unexpected failures due to under-provisioning. Just make sure you are using some block storage for the actual state so that if a node dies and your workloads are rescheduled, their disks will follow them. Also keep in mind that disks are AZ locked.
+
+## 2. QoS Class
+
 Kubernetes assigns QoS classes based on resource settings:
 
 * Guaranteed: Assigns the highest priority and prevents eviction due to resource pressure. Requires CPU and memory requests to match limits.
 * Burstable: Allows flexibility but risks eviction under high cluster load. Suitable for less critical workloads.
 * BestEffort: Most vulnerable to eviction. Not recommended for databases.
 
-Recommendation: Set both requests and limits to the same value to ensure a Guaranteed QoS class, reducing the chances of eviction especially for the critical PRIMARY pod. Replicas can be Burstable as you will have multiple instances for them.
+Recommendation: Run the exersize and calculate the values for CPU and Memory. Then start with the primary and assign resources that will have as a Guaranteed workload. Meaning calculate the limit values for both CPU and Memory, give some extra 20% or at least round up those numbers to have the headroom and use the same exact numbers for the request values.
+
+Replicas are simpler because you will have a number of them and you should start thinking of them as catle. These should run as burstable workloads and you want to cut cost here. So use the exact values you got from the previous exersize.
 
 ## 3. Pod Priority and Preemption
-When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods, you should leverage a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads. Example of a high-priority class:
+
+When the cluster runs out of resources, Kubernetes evicts lower-priority pods first. To protect database pods, you should leverage a PriorityClass with a high value to ensure database pods are scheduled before lower-priority workloads. In reality what we are doing here is defining how the cluster will do triage once a bad schenario is happening. When PriorityClass is useful the "ugly" is not at our doorstep, it was walked in the house. At this point in time its not IF workloads will stop but WHICH workload has a higher probability of staying functional. And as always with probabilities dice are going to get rolled. What we are doing here is stacking the dice to try and minimize the fallout.
+Example of a high-priority class:
 
 ```yaml
 apiVersion: scheduling.k8s.io/v1
@@ -632,9 +783,11 @@ spec:
     spec:
       priorityClassName: database-critical
 ```
+
 Consider here that your PRIMARY pods are more important than your REPLICAS, and also acknowledge that probably not all your tenants are equal. These aspects of reality should be reflected here.
 
 ## 4. Anti-Affinity and Pod Disruption Budgets
+
 Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
 
 To ensure high availability and resilience for database pods, you can use node anti-affinity and zone anti-affinity rules in Kubernetes. This prevents all database pods from being scheduled on the same node or within the same availability zone, reducing the risk of downtime due to node or zone failures.
@@ -657,9 +810,11 @@ To ensure high availability and resilience for database pods, you can use node a
                     app: my-database
                 topologyKey: "topology.kubernetes.io/zone"  # Prefer different zones
 ```
+
 Node and Zone Anti-Affinity: Spread database pods across nodes to avoid single points of failure.
 
 Pod Disruption Budget (PDB): Ensures at least one database pod remains available during voluntary disruptions.
+
 ```yaml
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -877,6 +1032,7 @@ pg_table:
     JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
     WHERE nspname NOT IN ('pg_catalog', 'information_schema') AND relkind = 'r';
 ```
+
 Estimate vs. Exact: Uses reltuples from pg_class, which generate an estimation based on the last ANALYZE. This avoids a full COUNT(*), which might be expensive.
 Performance Impact: This query is fast since it avoids scanning entire tables.
 Primary vs. Replica: Ideally, run on a replica if available, as stats are not real-time but good enough for monitoring.
@@ -884,12 +1040,17 @@ Primary vs. Replica: Ideally, run on a replica if available, as stats are not re
 # Stakeholders
 
 ## Business: Justify, Estimate, and Monitor Costs
+
 When working with business stakeholders, your main concerns will likely revolve around [Premature Scaling]([link](https://insights.roozbeh.ca/premature-scaling-a-challenge-in-enterprise-readiness-459d7a483654)) and [Infrastructure Cost Leverage]([link](https://insights.roozbeh.ca/infrastructure-cost-leverage-icl-09246939bf44)). To align with their priorities: Clearly justify why each step is necessary. Provide cost estimations, especially based on CPU and resource requirements. Demonstrate cost monitoring strategies to prevent budget overruns. Remember, business teams are balancing financial resources across multiple departments. They see infrastructure as an investment—make sure they understand the return.
 
+### Tools and more examples to work with Buisness.
+
 ## Developers: Observe, Adapt, and Abstract
+
 Don't assume how developers work—observe, verify, and validate before introducing changes. To be an effective DevOps engineer: Understand their existing workflows before making recommendations. Build internal tooling that simplifies their processes. Abstract complexity, but recognize that it still exists—hiding it doesn't mean it disappears. Your goal is to empower developers with seamless tooling while ensuring operational efficiency under the hood.
 
-## Tools and more examples
+### Tools and more examples to work with developers.
+
 devbox: Help developers set up their environment in a constant manner.
 Justfile: Help standardize actions, especially the ones with friction. A good example of this is generating dynamic credentials for your engineering teams, consider the following solution that uses BitWarden to fetch some secrets that will be used for the  next steps:
 
@@ -941,9 +1102,11 @@ _aws:
     echo "export AWS_ACCESS_KEY_ID=\"$access_key\""
     echo "export AWS_SECRET_ACCESS_KEY=\"$secret_key\""
 ```
+
 This example showcases the principle. The developer as a user does not need to save the credentials in their system to interact. Instead, a human-oriented method is used to fetch credentials for the next steps as required. Don't try to stop people from saving credentials. There is no `.env` file if the engineers have seamless ways of getting their job done.
 
 # Material:
+
 The following resources can't be recommended enough.
 https://www.amazon.com/Database-Internals-Deep-Distributed-Systems/dp/1492040347
 https://www.amazon.com/Designing-Data-Intensive-Applications-Reliable-Maintainable/dp/1449373321
