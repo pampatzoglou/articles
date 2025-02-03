@@ -1,6 +1,6 @@
 # **Operational Considerations for Managing Stateful Workloads**
 
-When managing stateful workloads, whether in Kubernetes or traditional infrastructure, operational concerns like isolation, lifecycle management, security, disaster recovery, scalability, and observability take center stage. While the examples focus on AWS, PostgreSQL and Kubernetes, the principles and best practices discussed here are broadly applicable to any environment. This article approaches these topics from an  **operations perspective**, prioritizing reliability, maintainability, and resilience. The goal is not just to get a database running but to ensure it operates efficiently, scales appropriately, and remains secure under real-world conditions. We’ll explore key aspects of running stateful workloads, from managing failure domains to ensuring observability, and how these impact both operations teams and developers. Whether you’re running a database in a cloud-native setup or on bare metal, these strategies will help you build a robust, well-managed system.
+When managing stateful workloads, whether in Kubernetes or traditional infrastructure, operational concerns like isolation, lifecycle management, security, disaster recovery, scalability, and observability take center stage. While the examples focus on AWS, PostgreSQL and Kubernetes, the principles and best practices discussed here are broadly applicable to any environment. This article approaches these topics from an  **operations perspective**, prioritizing reliability, maintainability, and resilience. The goal is not just to run a database, but to ensure it operates efficiently, scales properly, and remains secure in real-world conditions. We’ll explore key aspects of running stateful workloads, from managing failure domains to ensuring observability, and how these impact both operations teams and developers. Whether you’re running a database in a cloud-native setup or on bare metal, these strategies will help you build a robust, well-managed system.
 
 ### Table of Contents
 
@@ -38,7 +38,7 @@ Let's primarily focus on the isolation options for a database.
 * **Notes:**
   One can use Row-Level Security (RLS) in Postgres to have some weak aggregated form of isolation, but it's not isolation. We will dive into this subject as part of security.
 
-> A bad idea here to shards tenants would be to use table prefixes. **DONT**.
+> Using table prefixes for sharding tenants is a bad idea. **DONT**.
 
 ### 2. **Shared Database, Separate Schema**
 
@@ -438,7 +438,7 @@ spec:
 
 ```
 
-The main problem is that by nature of vault etc, not all of these can be automated. It can be scripted but a person who actually has access to the vault will need to be involved to run the required configurations. Unless you create a custom operator that has admin vault access and performs the required actions to setup the particular engine and paths etc. A better approach is to use the vault agent
+The main problem is that by nature of vault etc, not all of these can be automated. It can be scripted but a person who actually has access to the vault will need to be involved to run the required configurations. Unless you create a custom operator that has admin vault access and performs the required actions to setup the particular engine and paths etc. A better approach is to use the Vault agent to automate secret management.
 
 ```yaml
 ...
@@ -672,7 +672,7 @@ Replica 1 -> Replica 1: Recovery
 Replica 1 -> New Primary: Replication Ongoing
 ```
 
-If all this logic sounds tricky, you are correct. If this looks like some form of [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) you are exactly right! That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors. If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality and buisness realises that "[One Does Not Simply Walk Into Mordor](https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor)".
+If this setup seems complex, that's because it is. In many ways, it resembles the [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) puzzle—careful sequencing is key. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors. If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality and buisness realises that "[One Does Not Simply Walk Into Mordor](https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor)".
 
 Recommendation: Even If you don't manage to get the buy-in to change the entire architecture of your application, start by creating a single replica for departments that don't need real time data, like CS etc. Use the replicas to get some hands on expirience with buisness inteligence pipelines feeling happy that a huge query will not nuke your database and effect your customers.
 
@@ -1094,7 +1094,7 @@ _aws:
     echo "export AWS_SECRET_ACCESS_KEY=\"$secret_key\""
 ```
 
-This example showcases the principle. The developer as a user does not need to save the credentials in their system to interact. Instead, a human-oriented method is used to fetch credentials for the next steps as required. Don't try to stop people from saving credentials. There is no `.env` file if the engineers have seamless ways of getting their job done.
+This example showcases the principle. The developer as a user does not need to save the credentials in their system to interact. Instead, a human-oriented method is used to fetch credentials for the next steps as required. Don't try to stop people from saving credentials. Engineers won't need `.env` files if they have a seamless way to access credentials.
 
 # Material:
 
