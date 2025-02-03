@@ -228,6 +228,8 @@ sequenceDiagram
     DB-->>App: Data Retrieved/Updated
 ```
 
+For a deeper dive in the inner workings of databases I hightly recommend: [Fundamentals of Database Engineering](https://www.udemy.com/course/database-engines-crash-course/?couponCode=KEEPLEARNING) paired with [Database Internals](https://www.amazon.com/Database-Internals-Deep-Distributed-Systems/dp/1492040347).
+
 # Security
 
 Security includes multiple aspects that we will approach.
@@ -516,7 +518,7 @@ Once you have stopped using Shared Database with Shared Schema the authorization
 3. **Recovery Time Objective (RTO)** – Maximum acceptable downtime before services must be restored.
 4. **Recovery Point Objective (RPO)** – Maximum acceptable data loss measured in time (e.g., last backup timestamp).
 
-In my opinion, a common misconception is that HA setups offer DR. While they can be handy in some cases for example by mitigating restarts etc through failovers and redundancy, replicas should not be considered disaster recovery sources for the simple reason that they might be also corrupted or lost. Disaster recovery should mean that you have a path from being completely owned.
+In my opinion, a common misconception is that HA setups offer DR. While they can be handy in some cases for example by mitigating restarts etc through failovers and redundancy, replicas should not be considered disaster recovery sources for the simple reason that they might be also corrupted or lost. Disaster recovery should mean that you have a path from being completely owned. In a nutshel HA prevents downtime; DR recovers from disaster.
 
 In practice your first concern is backup. Either you use a cronjob to perform a series of dumps or volume snapshots by the database or through Velero, you will be doing something similar to
 
@@ -580,6 +582,12 @@ For a bit of more clarity regarding DRPs. A plan is always a good thing and keep
 	* Know what point in time you need to recover from.
 	* Know that you have tested these in past so you don't end up in a deeper hole.
 
+Some solutions worth exploring for DR are:
+
+* [Velero](https://velero.io/)
+* [Stash](https://stash.run/)
+* [Kasten K10](https://docs.kasten.io/latest/)
+
 # Scalability
 
 This entire setup considers a single database that can be used for read and write. You can also create different instances and "schedule" your tenants to them to have even balances. But sooner or later you will probably need to leverage different paths for read and write. This means replication, and replication means eventual consistency. Ignoring for now the eventual consistency logic, the architecture for this is as follows:
@@ -603,7 +611,7 @@ spec:
     - "topology.kubernetes.io/zone"
 ```
 
-# Database High Availability (HA) and Split Brain Risk During Upgrade
+# Database High Availability (HA) and Split Brain Risk
 
 In a database high availability (HA) setup that relies on long-running connections, upgrading and migrating to new nodes can introduce the risk of a split-brain scenario. This occurs when multiple nodes operate independently, believing they are the primary, leading to data inconsistency and potential loss of transactions.
 
@@ -655,23 +663,20 @@ sequenceDiagram
 
 Participant Old Primary
 Participant Replica 1
-Participant Replica 2
 Participant New Primary
 
 Replica 1 -> Old Primary: Replication Ongoing
-Replica 2 -> Old Primary: Replication Ongoing
-Old Primary --> New Primary: Recovery
-Replica 1 -> Old Primary: Still Syncing (Lost Track)
-Replica 2 -> Old Primary: Still Syncing (Lost Track)
-Replica 1 --> Replica 1: Recovery
+Old Primary -> New Primary: Recovery
+Replica 1 --> Old Primary: Still Syncing (Lost Track)
+Replica 1 -> Replica 1: Recovery
 Replica 1 -> New Primary: Replication Ongoing
-Replica 2 --> Replica 2: Recovery
-Replica 2 -> New Primary: Replication Ongoing
 ```
 
 If all this logic sounds tricky, you are correct. If this looks like some form of [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) you are exactly right! That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors. If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality and buisness realises that "[One Does Not Simply Walk Into Mordor](https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor)".
 
 Recommendation: Even If you don't manage to get the buy-in to change the entire architecture of your application, start by creating a single replica for departments that don't need real time data, like CS etc. Use the replicas to get some hands on expirience with buisness inteligence pipelines feeling happy that a huge query will not nuke your database and effect your customers.
+
+The book [Designing Data-Intensive Applications](https://www.amazon.com/Designing-Data-Intensive-Applications-Reliable-Maintainable/dp/1449373321) is an amazing source to really understand how to handle state.
 
 # Prepare for the Ugly: Ensuring Database Stability in Kubernetes
 
