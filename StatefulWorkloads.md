@@ -637,24 +637,13 @@ Below is a sequence diagram illustrating a split-brain scenario during an upgrad
 ```mermaid
 sequenceDiagram
 
-Participant Client
-Participant Old_Primary
-Participant Replica_1
-Participant Replica_2
-Participant New_Primary
+Participant Old Primary
+Participant Replica 1
+Participant New Primary
 
-Client -> Old_Primary: Open Long-Running Connection
-Old_Primary -> Replica_1: Replication Ongoing
-Old_Primary -> Replica_2: Replication Ongoing
-Old_Primary -> New_Primary: Migration Begins
-New_Primary -> Client: Accept New Connections
-Replica_1 -> Old_Primary: Still Syncing (Lost Track)
-Replica_2 -> Old_Primary: Still Syncing (Lost Track)
-Client -> Old_Primary: Writes to Old Primary
-Client -> New_Primary: Writes to New Primary
-Old_Primary -> Data_Store: Writes
-New_Primary -> Data_Store: Writes
-
+Old Primary -> Replica 1: Replication Ongoing
+Old Primary -> New Primary: Migration Begins
+Replica 1 --> Old Primary: Lost Track (Split brain)
 ```
 
 ### Sequence Diagram: Upgrade Process with Replicas
@@ -664,25 +653,25 @@ Below is a sequence diagram showing the upgrade process where first a replica mo
 ```mermaid
 sequenceDiagram
 
-Participant Client
-Participant Old_Primary
-Participant Replica_1
-Participant Replica_2
-Participant Replica_3
-Participant New_Primary
-Participant HA_Controller
+Participant Old Primary
+Participant Replica 1
+Participant Replica 2
+Participant New Primary
 
-HA_Controller -> Replica_1: Migrate to New Node
-HA_Controller -> Old_Primary: Migrate Primary to New Node
-HA_Controller -> New_Primary: Promote to Primary
-HA_Controller -> Replica_2: Migrate to New Node
-HA_Controller -> Replica_3: Migrate to New Node
-New_Primary -> Client: Accept New Connections
+Replica 1 -> Old Primary: Replication Ongoing
+Replica 2 -> Old Primary: Replication Ongoing
+Old Primary --> New Primary: Recovery
+Replica 1 -> Old Primary: Still Syncing (Lost Track)
+Replica 2 -> Old Primary: Still Syncing (Lost Track)
+Replica 1 --> Replica 1: Recovery
+Replica 1 -> New Primary: Replication Ongoing
+Replica 2 --> Replica 2: Recovery
+Replica 2 -> New Primary: Replication Ongoing
 ```
 
-If all this logic sounds ricky, you are correct. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as HA_Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors.
+If all this logic sounds tricky, you are correct. If this looks like some form of [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) you are exactly right! That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors.
 
-If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster.
+If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality. If you don't manage to get the buy-in start by creating replicas for departments that don't need real time data, like CS etc. Use the replicas to get some hands on expirience with buisness inteligence pipelines.
 
 # Prepare for the Ugly: Ensuring Database Stability in Kubernetes
 
