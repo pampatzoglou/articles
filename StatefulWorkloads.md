@@ -635,28 +635,11 @@ During an upgrade, the following events may unfold:
 ## Mitigation Strategies
 
 * **Connection Draining:** Ensure all active connections are gracefully closed before promoting a new node.
-* **Quorum-Based Consensus:** Use mechanisms like Raft or Paxos to avoid multiple leaders.
 * **Automated Failover Testing:** Simulate failover scenarios before deploying upgrades.
 * **Strict Fencing Mechanisms:** Implement strict write fencing to prevent stale nodes from accepting writes.
 * **Short-lived Connections:** Design clients to use short-lived or automatically re-established connections after failovers.
 
-Below is a sequence diagram illustrating a split-brain scenario during an upgrade.
-
-```mermaid
-sequenceDiagram
-
-Participant Old Primary
-Participant Replica 1
-Participant New Primary
-
-Old Primary -> Replica 1: Replication Ongoing
-Old Primary -> New Primary: Migration Begins
-Replica 1 --> Old Primary: Lost Track (Split brain)
-```
-
-### Sequence Diagram: Upgrade Process with Replicas
-
-Below is a sequence diagram showing the upgrade process where first a replica moves to new nodes, followed by the primary, and then the remaining replicas.
+Below is a sequence diagram illustrating a split-brain scenario during an upgrade and how it will get resolved either by replicas understanding that they are in split brain and re establishing connectivity or through an controler that takes over and handles the recovery.
 
 ```mermaid
 sequenceDiagram
@@ -667,16 +650,22 @@ Participant New Primary
 
 Replica 1 -> Old Primary: Replication Ongoing
 Old Primary -> New Primary: Recovery
-Replica 1 --> Old Primary: Still Syncing (Lost Track)
+Replica 1 --> Old Primary: Lost Track (Split Brain)
 Replica 1 -> Replica 1: Recovery
 Replica 1 -> New Primary: Replication Ongoing
 ```
 
-If this setup seems complex, that's because it is. In many ways, it resembles the [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) puzzle—careful sequencing is key. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors. If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality and buisness realises that "[One Does Not Simply Walk Into Mordor](https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor)".
+If this setup seems complex, that's because it is. Especially if you consider that you might have multiple replicas which might also need to get scheduled on new nodes etc. In many ways, it resembles the [Tower of Hanoi](https://en.wikipedia.org/wiki/Tower_of_Hanoi) puzzle—careful sequencing is key. That's why its better to leverage some tools to help you out. Especially with postgres there is an operator that will act as Controller ([cloudnativePG](https://cloudnative-pg.io/)) that will offer a great deal of help running operations. In the past I got some very good results from Patroni.  Also this is why you really need either short lived connections from your applications or some code to handle these potential errors. If this sounds like a high risk scenario (and it probably is for most organizations) I would suggest to start with what you are already using, a managed database and treat it as your primary. Then build an replication system in your own cluster. But always keep in mind that you are no longer in ACID land, **you are now in eventual consistency land**. What has actually happened is that you traded downtime for ACID and managed to maintain eventual consistency. Make sure that your engineering recognises this as an architectural reality and buisness realises that "[One Does Not Simply Walk Into Mordor](https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor)".
 
 Recommendation: Even If you don't manage to get the buy-in to change the entire architecture of your application, start by creating a single replica for departments that don't need real time data, like CS etc. Use the replicas to get some hands on expirience with buisness inteligence pipelines feeling happy that a huge query will not nuke your database and effect your customers.
 
 The book [Designing Data-Intensive Applications](https://www.amazon.com/Designing-Data-Intensive-Applications-Reliable-Maintainable/dp/1449373321) is an amazing source to really understand how to handle state.
+
+#### Short or long lived connections
+
+This in fact is one of the core architectural dilemmas. On one hand if short lived connections are used then you can easily fail fast and have a good probability that you always get the most relevant information. The downside is that you will keep paying the overhead of establishing a new connection. This overhead can be substantial if you are also using some form of SSL/TLS which in practice will fisrt do a really expensive asymetric encription handshake to generate the sessions symmetric key that will be used for the rest of the session. The same session that might be used for some minutes or even for a single query. In the other hand, long lived connections don't have to repay this overhead but they need to handle re connecting to databases and understanding that they might be talking to a stale / split brain replica etc. What to choose really depends on your particular use case. But at the very least accept to pay the overhead of SSL/TLS for the most important connections to your database, the processes that handle schema changes! These are relatevly rate events that use credentials with high capabilities. So at the very least protect these as much as possible. Also keep in mind that replication between databases is using long lived connections, so make sure these are also protected with SSL/TLS. For the res, meaning your application, it really depends on your exact use case and data. Still I would suggest to use SSL/TLS for the cursors that handle write to the databases.
+
+Its strange how "small" non functional requirements dictate key aspects of the archtecture.
 
 # Prepare for the Ugly: Ensuring Database Stability in Kubernetes
 
