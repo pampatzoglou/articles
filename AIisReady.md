@@ -93,6 +93,9 @@ And if you skip the foundation, every agent query gets expensive *twice*. Expens
 
 Skip the journey, and you don't get the destination. You get a very costly approximation of it.
 
+<img width="315" height="459" alt="image" src="https://github.com/user-attachments/assets/f079e9d4-05d5-4ab4-98d7-f23155e276b6" />
+
+
 ---
 
 ## This isn't a reason to wait
