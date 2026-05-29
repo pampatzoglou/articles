@@ -8,6 +8,7 @@ I hear some version of this every week. From developers, platform engineers, lea
 
 It's the wrong conclusion. AI is ready. You weren't.
 And I'd bet that's true 99 times out of 100.
+
 ---
 
 The engineers telling me this aren't anti-AI. They're exhausted. They can see the gap between what's being promised upstairs and what their codebase can actually support — and nobody above them wants to hear that the problem isn't the model. It's the decade of shortcuts that came before it.
