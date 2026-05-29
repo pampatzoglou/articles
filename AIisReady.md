@@ -77,7 +77,7 @@ So ask yourself honestly: if you can't describe your own domain without contradi
 
 ## The shortcut illusion
 
-I've watched this play out over and over. A team grafts an LLM onto a monolith that was never properly modeled. It works beautifully in the demo. Then it hallucinates in production, makes confident decisions on ambiguous data, and triggers side effects nobody can trace. Incidents multiply. Trust evaporates.
+I've watched this play out over and over. A team grafts an LLM onto a monolith that was never properly modeled. It works beautifully in the prompt. Then it attempts to save tokens and hallucinates on the code, makes confident decisions on ambiguous data, and triggers side effects nobody can trace. Incidents multiply. Trust evaporates.
 
 Then they say AI isn't ready.
 
