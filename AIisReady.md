@@ -1,4 +1,4 @@
-# AI Is Ready. You Weren't.
+# AI Is probably ready. You Weren't.
 
 "AI made everything worse."
 
