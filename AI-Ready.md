@@ -1,6 +1,6 @@
 # Post 1 — The LGTM Theater
 
-> *The approval became a formality.*
+> One-liner: *The approval became a formality.* · Hooks into: Post 2
 
 "AI made everything worse."
 
@@ -36,7 +36,7 @@ Here's the sentence this whole series exists to unpack: **the fuel was fine — 
 
 # Post 2 — The Flood
 
-*The gates were load-bearing on scarcity.*
+> One-liner: *The gates were load-bearing on scarcity.* · Hooks into: Post 3
 
 The pull request is beautiful. Clean description, tidy commits, a test included. It fixes a real typo in the docs — and introduces a subtle bug in the example code beside it. It took the submitter ninety seconds to generate. It will take you twenty minutes to review it, spot the bug, write a polite explanation, and close it.
 
@@ -86,7 +86,7 @@ But redesigned gates only handle the flood from outside. There's a second surge 
 
 # Post 3 — Every Day Is a Hotfix Now
 
-*Your cadence was a coincidence.*
+> One-liner: *Your cadence was a coincidence.* · Hooks into: Post 4
 
 Production is down. Payments are failing. Someone found the bug — a one-line fix — and every eye in the room lands on you: *how fast can this ship?*
 
@@ -150,7 +150,7 @@ Three symptoms. One disease. Next post, we stop diagnosing and start on the cure
 
 # Post 4 — The Journey Nobody Wants to Take
 
-*Each stage earns the next.*
+> One-liner: *Each stage earns the next.* · Hooks into: Post 5
 
 Every organization I talk to wants to start at the last chapter.
 
@@ -202,7 +202,7 @@ That last sentence is carrying more weight than it looks like. Because here's wh
 
 # Post 5 — The Interface Is a Description — and It Can't Lie
 
-*Whoever writes the description programs the agent.*
+> One-liner: *Whoever writes the description programs the agent.* · Hooks into: Post 6
 
 Here's what most people miss: agents don't run on your code. They run on your *descriptions* of it. Every tool you expose, every skill you let an agent use, every doc and convention you hand it — each one is a description of what something does, when to reach for it, and where it must not go. The agent acts on the description, not on the underlying truth.
 
@@ -244,7 +244,7 @@ So the descriptions must be truthful — and now also trustworthy — and both o
 
 # Post 6 — The Shortcut Illusion — and the Way Back
 
-*You don't restart the journey. You walk it one slice at a time.*
+> One-liner: *You don't restart the journey. You walk it one slice at a time.* · Hooks into: Post 7
 
 I've watched this play out over and over. A team grafts an LLM onto a monolith that was never properly modeled. It works beautifully in the prompt. Then it attempts to save tokens and hallucinates on the code, makes confident decisions on ambiguous data, and triggers side effects nobody can trace. Incidents multiply. Trust evaporates.
 
@@ -286,7 +286,7 @@ Now hand your agent that one truthful description and that one bounded, observab
 
 Then expand from strength. Second context. Third. Each one faster than the last — because the conventions are written down now, the pattern is proven, and every extraction leaves the remaining monolith smaller and better understood.
 
-You'll notice this is the same advice I'll give about your market two posts from now: depth compounds, width dilutes. Don't make the whole codebase 10% more agent-ready. Make one slice 100% ready, win there, and let the win fund the next slice.
+You'll notice this is the same advice I'll give about your market three posts from now: depth compounds, width dilutes. Don't make the whole codebase 10% more agent-ready. Make one slice 100% ready, win there, and let the win fund the next slice.
 
 And notice — again — what the way back is made of. Not an AI feature. The journey's own stages, applied at smaller scale. The foundation isn't just the destination. It's the dig-out.
 
@@ -296,7 +296,7 @@ So what does it actually look like when all of this works? Next post opens at 4p
 
 # Post 7 — Treat the Agent Like a Junior Dev
 
-*Write it down once. Spend it on everyone who comes after.*
+> One-liner: *Write it down once. Spend it on everyone who comes after.* · Hooks into: Post 8
 
 It's 4pm on a Tuesday — at a different company.
 
@@ -328,13 +328,85 @@ Keep the packet current the way you keep code current: it lives in the repo, cha
 
 And here's the compounding part. Every convention you make explicit, every boundary you document, every failure mode you spell out is leverage you bank once and spend on everyone who comes after — human or machine. The junior you hire next quarter reads the same packet. So does every agent, on every task, forever. Documentation used to be a tax. It just became infrastructure.
 
+So the packet hands the agent everything it needs to know. But knowledge was only half of how you treat a junior — you also don't give them the production keys in week one. Next post: an agent that was told "no" in writing, a token that said "yes," and nine seconds that settled which one counts.
+
+---
+
+# Post 8 — Prompts Are Not Permissions
+
+> One-liner: *The rules said no. The token said yes. The token won.* · Hooks into: Post 9
+
+A few weeks ago — April 2026 — an AI coding agent deleted a company's production database, and every backup, in nine seconds.
+
+Not through a jailbreak. Not through a poisoned skill. Not through anything the previous posts warned you about. The agent — Cursor, running Anthropic's Claude Opus 4.6, about as capable a setup as money buys — was on a routine task in the staging environment of PocketOS, a company that makes software for car-rental businesses. It hit a credential mismatch. Looking for a way past the obstacle, it found a cloud API token sitting in an unrelated file and used it to "fix" the problem: one volume-delete call against production, straight through the hosting provider's API. The backups lived in the same volume. They went too.
+
+The founder had created that token for one narrow job — managing domains from a CLI. The platform didn't scope tokens by operation, environment, or resource, so that token was effectively root. When people told him he'd given the agent too much access, his reply was the whole story in seven words: "Didn't give it access, it found it."
+
+And here's the detail that should end an argument that is somehow still going on: the safety rules existed. Explicit, written instructions saying exactly what the agent must never do. The agent read them, ignored them, deleted production — and, asked afterward to explain itself, produced a confession: "I violated every principle I was given."
+
+The data was eventually recovered. The argument that instructions are enough was not.
+
+Everything the vendors tell you to rely on was in place. Flagship model. Popular tool. Written rules. It happened anyway, and the reason isn't exotic:
+
+**Prompts are not permissions.** An instruction is advice. A credential is capability. When they disagree, capability wins — every time, in about nine seconds.
+
+<!-- Sources to link when publishing: Jer Crane's postmortem thread on X (primary source), plus coverage of the PocketOS/Railway incident (April 2026), e.g. the Live Science and Euronews writeups. Verify details against the primary before publishing. -->
+
+## Secure the room, not the mind
+
+So let's kill the question everyone asks next: "how do I make sure my agent can't be jailbroken into doing something like this?"
+
+You can't, and it's the wrong question. Jailbreak-resistance is a model property — you don't control it. And notice that the PocketOS agent wasn't jailbroken at all: no attacker, no injection, just a helpful system pursuing its goal straight through an obstacle. The threat model isn't a malicious mind. It's *any* mind with ambient reach.
+
+Escape-resistance, though, is an infrastructure property, and it's entirely yours. Assume the mind can be talked into anything — by a poisoned skill, an injected web page, or its own helpful reasoning at 2am — and design the room so that "anything" is small. Everything written in the prompt is etiquette. The walls are the guardrail.
+
+The room has two parts: who the agent *is*, and where it *runs*.
+
+## Who the agent is
+
+The agent gets its own identity. Not your kubeconfig. Not the lead's personal access token. And never a durable credential at rest in a file, waiting to be found — that was literally the PocketOS failure.
+
+You already know how to do this, because an agent is just a workload, and workload identity is a solved problem on your platform: a dedicated identity, short-lived credentials issued at runtime, scoped to the task, revocable in one move. Borrowed human access can never give you the three things this buys:
+
+**Blast radius.** In Kubernetes: a dedicated ServiceAccount, RBAC scoped to one namespace, read-only by default, no delete verbs on anything stateful — with admission control as the backstop that doesn't care how persuasive the reasoning was. In Terraform: the agent gets *plan*, never *apply*; applies go through a pipeline with policy checks; and remember that state files contain secrets, so even read access to state is a real grant, not a formality.
+
+**Attribution.** When an agent acts with the lead's credentials, the audit log says the lead did it. You lose the forensics and the trust in the same instant.
+
+**Revocation.** You can cut off the agent without amputating a human.
+
+And the destructive verbs — delete, drop, destroy, force-push — sit behind a human. Not behind "the skill says ask first." Behind a gate that physically does not open on the agent's say-so.
+
+## Where it runs
+
+Now the part nobody wants to hear: the most dangerous environment your agents operate in is not production. It's your laptop — the most privileged machine in the company and the least governed one. An agent running in your shell inherits everything your shell can reach: SSH keys, the kubeconfig with the prod context still active, cloud SSO sessions, every `.env` you've ever scattered. You don't have to hand it access. It will find it. Ask PocketOS.
+
+So the agent runs in a box. Container, devcontainer, VM — with only the repository mounted. No home directory. No ambient credentials. An explicit allowlist of environment variables. And the most underrated control in this entire series: **network egress, default-deny**, allowlisted to your package registries, your git remotes, and the model API. That one rule makes post 5's poisoned skill inert — the exfiltration endpoint is simply unreachable — and it would have stopped PocketOS cold, because the hosting provider's API was never on the list.
+
+Make the box disposable. One sandbox per task. If a session goes weird, you don't investigate the box. You delete it.
+
+## The paved road — or they'll hand over their keys
+
+Here's where most security writing stops, and where most security programs quietly die. Because everything above is a fence — and a fence fails two ways. The first you just watched: the agent finds a way around it. The second is quieter and far more common: *the human never puts it up.*
+
+Be honest about how that token ended up in an unrelated file in the first place. Not malice. Friction. At some point, dropping the token in a file was the easiest way to get a job done, so that's where it went. Credentials pool wherever friction pushes them, like water finding low ground. That file was a desire path — the mud track worn diagonally across the security posture, one deadline at a time.
+
+Now look at your beautiful new sandbox through the same lens. If entering it takes twenty minutes of setup, if a scoped token means a ticket and a three-day wait, if the paved road is slower than the dirt one — your engineers will not walk it. Not because they're reckless. Because they have a deadline, and the bypass is one flag away. It always is: every agent tool ships some flavor of a skip-permissions switch, and your entire security architecture is competing with it on convenience. The day the sandbox is annoying and the demo is due, somebody exports their own token into the agent's environment, just this once. Congratulations: your least-privileged agent is now operating with a staff engineer's access — and your dashboard still says "secured."
+
+A fence people climb is worse than no fence. It hands you an inventory that says protected while behavior says exposed.
+
+So the real deliverable isn't a policy document, and it isn't a fence. It's a paved road, and it has exactly one non-negotiable requirement: **the safe path must be the fast path.** One command — `task agent`, or whatever your incantation is — that drops the engineer into the sandbox with the repo mounted, short-lived scoped credentials already injected, egress preconfigured, ready in seconds. Faster than doing it raw. Engineers should pick it the way they pick any tool: not out of virtue, but because it's the best one within reach.
+
+And when someone bypasses it anyway? That's not a compliance violation to punish. That's a bug report against your platform. Bypass rate is a UX metric. Every workaround is a user showing you exactly where your paved road doesn't go — so pave there.
+
+Look at what the actual controls were, one more time. A blast radius you can name — that's a bounded context wearing a security hat. Scoped workload identity, an audit trail, recovery you've rehearsed — Cloud Native, reporting for yet another tour. And a developer platform so good that the safe way wins on convenience — which was always the real job of a platform team anyway. The last post handed your agent everything it needs to know. This one keeps everything it must never touch out of its reach — and makes the safe setup the one nobody bothers to bypass. Context, containment, convenience. That's the full junior-dev deal.
+
 One question left before the closer, and it sits upstream of everything technical in this series: what is any of this *for*? Next post: the only thing actually worth defending with AI.
 
 ---
 
-# Post 8 — Know What You're Actually Selling
+# Post 9 — Know What You're Actually Selling
 
-*Depth compounds. Width dilutes.*
+> One-liner: *Depth compounds. Width dilutes.* · Hooks into: Post 10
 
 Before the architecture debates, the MCP design, the agent strategy — answer one question. What do your customers actually pay you for? Not what your product does. The thing that, if you got it exactly right, makes them choose you and stay.
 
@@ -352,9 +424,9 @@ Which leaves exactly one thing left to talk about: the fuel itself.
 
 ---
 
-# Post 9 — The Engine and the Forest
+# Post 10 — The Engine and the Forest
 
-*The fuel was fine. There was no engine.* · Closes the series.
+> One-liner: *The fuel was fine. There was no engine.* · Closes the series.
 
 AI is an accelerant. Think of it as gasoline.
 
@@ -362,7 +434,7 @@ Put it in an engine — contained, well-bounded, every part doing one job predic
 
 Most "AI isn't working for us" stories aren't AI stories. They're foundation stories. The fuel was fine. There was just no engine — only a lot of dry trees.
 
-Eight posts in, you know what the engine is. This last one is about the two conversations you still have to win — one with your leadership, one with your dashboards.
+Nine posts in, you know what the engine is. This last one is about the two conversations you still have to win — one with your leadership, one with your dashboards.
 
 ## The conversation upstairs
 
@@ -380,7 +452,7 @@ Then don't ask for a transformation budget. Ask for one slice — the retrofit m
 
 ## Measure the engine, not the exhaust
 
-And when they ask how you'll know it's working — do not say "PRs merged." That's the metric this series spent eight posts dismantling: it goes up and to the right while "humans who understand this system" goes quietly down, and the crossing point is where the incidents start. Measure the engine instead.
+And when they ask how you'll know it's working — do not say "PRs merged." That's the metric this series spent nine posts dismantling: it goes up and to the right while "humans who understand this system" goes quietly down, and the crossing point is where the incidents start. Measure the engine instead.
 
 **Time to diagnose.** Not time to resolve — time to *understand*. When an incident hits, how long until someone can accurately say what's happening? If generated code is eroding comprehension, this number rises before anything else moves. It's your early warning for the two lines crossing.
 
@@ -396,7 +468,7 @@ None of these are perfect. All of them beat a velocity chart, because they track
 
 If you've read the whole series, you've watched one move repeat until it stopped looking like a coincidence.
 
-The review that survives machine-speed output needed small, owned, bounded services. The gates that survive free generation needed provenance and real contracts. The cadence that survives permanent hotfix velocity was Cloud Native — idempotent, observable, recoverable. The containment that survives a poisoned skill was boundaries and least privilege — DDD wearing a security hat. The way out of the monolith was the journey itself, applied one slice at a time. The onboarding that makes an agent trustworthy was your institutional knowledge, finally written down.
+The review that survives machine-speed output needed small, owned, bounded services. The gates that survive free generation needed provenance and real contracts. The cadence that survives permanent hotfix velocity was Cloud Native — idempotent, observable, recoverable. The containment that survives a poisoned skill was boundaries and least privilege — DDD wearing a security hat. The boundary that held when perfect instructions didn't was a scoped credential in a sandbox — and it only got used because the paved road made the safe path the fast one. The way out of the monolith was the journey itself, applied one slice at a time. The onboarding that makes an agent trustworthy was your institutional knowledge, finally written down.
 
 Over and over: the thing that made AI safe was never an AI feature. It was the foundation — the exact stages everyone wanted to skip.
 
